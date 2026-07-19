@@ -28,6 +28,15 @@ class SourceInput(StrictModel):
     locator: Locator
     untrusted_content: str = Field(min_length=1, max_length=4000)
 
+
+class SourceRelevance(StrictModel):
+    """A deterministic lexical screen, never a claim about source quality."""
+
+    source_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    verdict: Literal["direct", "contextual", "limited"]
+    matched_terms: list[str] = Field(max_length=12)
+    reason: str = Field(min_length=1, max_length=500)
+
 class EvidenceRef(StrictModel):
     id: str = Field(min_length=3, max_length=120)
     kind: Literal["source", "data"]
@@ -69,6 +78,12 @@ class ControlProposal(StrictModel):
     priority: Literal["high", "medium", "low"]
     feasibility: str = Field(min_length=1, max_length=300)
 
+
+class MechanismVerdict(StrictModel):
+    label: Literal["MECHANISM_NOT_ESTABLISHED"]
+    reason: str = Field(min_length=1, max_length=500)
+    blocking_finding_ids: list[str] = Field(min_length=2, max_length=20)
+
 class ClaimInput(StrictModel):
     claim: str = Field(min_length=1, max_length=1000)
 
@@ -102,9 +117,10 @@ class Report(StrictModel):
     findings: list[Finding]
     control: ControlProposal
     sources: list[SourceInput]
+    source_relevance: list[SourceRelevance] = Field(default_factory=list)
     dataset: DatasetAnalysis
+    verdict: MechanismVerdict
     exported_at: str
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-

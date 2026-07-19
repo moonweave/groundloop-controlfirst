@@ -51,7 +51,7 @@ GroundLoop should feel like a scientific working paper, not an AI chat surface o
 
 The product has four deliberate screens, matching the implementation contract:
 
-1. **Run setup** — claim, source excerpts, methods note, and CSV. It produces a local packet only.
+1. **Run setup** — research question, automatic bounded reference discovery, methods note, and CSV. It produces a local packet only.
 2. **Evidence packet** — immutable source/data cards and deterministic checks. It establishes the handoff boundary.
 3. **Codex handoff** — an explicit run ID and copyable MCP prompt; no hidden model call from the browser.
 4. **Report** — four-state findings, provenance ledger, and the single ControlFirst proposal.

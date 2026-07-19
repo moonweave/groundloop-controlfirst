@@ -4,19 +4,21 @@ This document freezes the Build Week MVP so an implementation agent can build it
 
 ## 1. Scope freeze
 
-GroundLoop is a **local, MCP-first research reasoning workflow**. Codex with GPT-5.6 is the reasoning host; GroundLoop is the bounded local tool that prepares evidence, validates claims, persists provenance, and renders the report.
+GroundLoop is a **local, MCP-first scientific red team for experimental transport claims**. Codex with GPT-5.6 is the reasoning host; GroundLoop is the bounded local tool that prepares evidence, challenges a proposed mechanism, validates conclusion states, persists provenance, and renders one discriminating ControlFirst experiment.
+
+The first user is a materials or experimental-physics researcher interpreting electrical or thermal transport data. This scope is locked for the Build Week submission. Automatic literature retrieval is supporting infrastructure, not the product hero.
 
 The MVP has one complete path only:
 
 ```text
-claim + verified source excerpts + CSV
+research question + allowlisted reference discovery + CSV
   -> local evidence packet
   -> Codex invokes GroundLoop MCP tools
   -> validated findings + one control proposal
   -> JSON/Markdown report rendered in the local web app
 ```
 
-There is no hosted service, user API key, direct OpenAI API call, paper search, URL import, PDF parsing, figure analysis, arbitrary code execution, or automatic external action.
+There is no hosted service, user API key, direct OpenAI API call, arbitrary URL import, PDF parsing, figure analysis, arbitrary code execution, or automatic external action. The one bounded external operation is an explicit search against the fixed, allowlisted OpenAlex works endpoint; it returns only metadata and indexed abstracts, never paper full text.
 
 ## 2. Fixed demo scenario
 
@@ -39,6 +41,7 @@ The shipped fixture is `four_wire_contact_control`.
 - **Inferred:** the pattern is consistent with a bulk transition, but does not establish it.
 - **Unresolved:** the contribution of contacts/leads to the observed change.
 - **ControlFirst:** repeat the temperature sweep with a four-wire configuration under the same current, temperature range, and sample mounting. If the transition persists comparably, the bulk-transition interpretation gains support; if it weakens or disappears, contact/lead resistance is a plausible explanation.
+- **Verdict:** `MECHANISM NOT ESTABLISHED`, tied to the validated Inferred and Unresolved finding IDs. This is the required red-team output before any proposed control is run.
 
 This is a demonstrator for evidence handling, not a claim that a real sample has a bulk transition. The source pack must be citation-verified before recording the video; fabricated citations are prohibited.
 
@@ -50,7 +53,7 @@ packages/core/            Python domain models, validation, storage, CSV analysi
 services/local_api/       FastAPI adapter for the local UI
 services/mcp_server/      Python MCP adapter for Codex
 fixtures/four_wire_contact_control/
-                           claim, source excerpts, methods note, CSV, manifest
+                           claim, discovered source records, methods note, CSV, manifest
 tests/unit/               core contracts and deterministic analysis
 tests/integration/        API, MCP, persistence, and security boundaries
 tests/e2e/                one visible fixture-to-report journey
@@ -159,7 +162,7 @@ Validation rules are non-negotiable:
 | `Inferred` | one or more source or data references | `uncertainty` and at least one named alternative explanation are required. |
 | `Unresolved` | one or more source or data references | Must state the missing discriminating evidence; it cannot make a positive conclusion. |
 
-The validator rejects a finding that fails these rules. It also rejects unsupported evidence IDs, duplicate IDs, references to another run, more than 500 characters of statement text, and more than 1,500 characters of reasoning.
+The validator rejects a finding that fails these rules. A GroundLoop red-team report must include at least one `Observed`, `Inferred`, and `Unresolved` finding. It also rejects unsupported evidence IDs, duplicate IDs, references to another run, more than 500 characters of statement text, and more than 1,500 characters of reasoning.
 
 ### Control proposal
 
@@ -226,7 +229,7 @@ Every MCP tool accepts a `run_id` and operates only on a prepared local run. Too
 | Tool | Input beyond `run_id` | Output / state change |
 | --- | --- | --- |
 | `create_evidence_packet` | none | compact packet with claim, methods, source metadata/excerpts, deterministic data summary; creates or returns `PACKET_READY` |
-| `inspect_sources` | none | source-derived expectations and source evidence IDs; moves to `SOURCES_INSPECTED` |
+| `inspect_sources` | none | source-by-source lexical relevance screen, source-derived expectations, and source evidence IDs; moves to `SOURCES_INSPECTED` |
 | `analyze_dataset` | none | deterministic dataset facts and data evidence IDs; moves to `DATA_ANALYZED` |
 | `reconcile_evidence` | proposed `Finding[]` | validates and persists findings; moves to `FINDINGS_VALIDATED` |
 | `propose_control` | proposed `ControlProposal` | validates and persists one proposal; moves to `CONTROL_VALIDATED` |
@@ -234,13 +237,13 @@ Every MCP tool accepts a `run_id` and operates only on a prepared local run. Too
 
 `reconcile_evidence` and `propose_control` are validators/persistence tools, not model calls. Codex and GPT-5.6 generate candidate reasoning from the bounded tool outputs, then submit it for validation. If validation fails, the returned error identifies the violated rule and Codex revises only that structured candidate.
 
-The final report is generated from validated JSON with a deterministic template. It must display source titles, locators, hashes, data row ranges, all findings grouped by status, and the control proposal. It never displays hidden tool instructions or raw files outside their cited excerpts.
+The final report is generated from validated JSON with a deterministic template. It must display `MECHANISM NOT ESTABLISHED`, the blocking Inferred/Unresolved finding IDs, source titles, transparent lexical retrieval screens, locators, hashes, data row ranges, all findings grouped by status, and the control proposal. It never displays hidden tool instructions or raw files outside their cited excerpts.
 
 ## 9. Companion UI contract
 
 The UI has four views only:
 
-1. **Run setup:** choose the fixture or create a draft, enter claim, source excerpts, methods note, and CSV.
+1. **Run setup:** create a draft from a research question; automatically retrieve 2–3 indexed abstracts; then add methods note and CSV. The fixture remains an explicit demo-only option.
 2. **Evidence packet:** show immutable source/data cards, hashes, expected conditions, and deterministic data facts after preparation.
 3. **Codex handoff:** display the exact copyable prompt: `Analyse GroundLoop run <run_id>. Call inspect_sources and analyze_dataset first, then validate findings and one ControlFirst proposal before exporting the report.` It does not call Codex itself.
 4. **Report:** render the final four-state evidence table, control proposal, and provenance links after export.
@@ -251,7 +254,7 @@ Markdown rendering uses a sanitiser with raw HTML disabled. The UI must make it 
 
 Security requirements are implementation constraints, not documentation claims:
 
-- The process exposes no URL-fetching tool and the dependency graph must contain no runtime HTTP client in Core, local API, or MCP paths.
+- The process accepts no user-supplied URL or network destination. Its only runtime HTTP client is the explicit reference-discovery adapter, which uses a fixed HTTPS OpenAlex endpoint, query-encodes a bounded research question, has a short timeout, and never fetches full text.
 - The process accepts no shell command, executable path, arbitrary filename, or external URI from the UI or MCP tool schemas.
 - Upload names are discarded; files are copied under generated artifact IDs.
 - Source excerpts are transported as a distinct `untrusted_content` field and never concatenated into tool instructions.
@@ -261,11 +264,12 @@ Security requirements are implementation constraints, not documentation claims:
 Required negative tests:
 
 1. A source excerpt containing `ignore prior instructions` cannot alter a tool response or create a finding.
-2. A finding marked `Established` with only data references is rejected.
-3. A finding marked `Observed` with causal language or no deterministic analysis reference is rejected.
-4. A malformed, oversized, non-UTF-8, or path-traversal upload is rejected without creating a run artifact outside the data root.
-5. A run ID from another run cannot be referenced by a finding or artifact request.
-6. Raw claim/source/CSV content is absent from captured application logs.
+2. A discovery request cannot change the lookup host/path or trigger a full-text fetch.
+3. A finding marked `Established` with only data references is rejected.
+4. A finding marked `Observed` with causal language or no deterministic analysis reference is rejected.
+5. A malformed, oversized, non-UTF-8, or path-traversal upload is rejected without creating a run artifact outside the data root.
+6. A run ID from another run cannot be referenced by a finding or artifact request.
+7. Raw claim/source/CSV content is absent from captured application logs.
 
 ## 11. Build order and acceptance commands
 

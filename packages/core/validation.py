@@ -15,6 +15,10 @@ def validate_findings(findings: list[Finding], refs: list[EvidenceRef], determin
             if any(word in f.statement.lower() for word in ("causes", "demonstrates", "proves", "mechanism")): raise ValueError("Observed findings cannot use causal language")
         if f.status=="Inferred" and (not f.uncertainty or not f.alternative_explanation): raise ValueError("Inferred findings require uncertainty and an alternative explanation")
         if f.status=="Unresolved" and not any(word in f.statement.lower() for word in ("unresolved", "unknown", "requires", "not known", "cannot")): raise ValueError("Unresolved finding must state missing evidence")
+    statuses = {finding.status for finding in findings}
+    for required in ("Observed", "Inferred", "Unresolved"):
+        if required not in statuses:
+            raise ValueError(f"Scientific red-team reports require one {required} finding")
     return findings
 
 def validate_control(control: ControlProposal, findings: list[Finding]) -> ControlProposal:
@@ -25,3 +29,14 @@ def validate_control(control: ControlProposal, findings: list[Finding]) -> Contr
     if any(word in (control.experiment+control.confound).lower() for word in ("email", "publish", "execute shell", "curl", "http://")): raise ValueError("Control contains an external action")
     return control
 
+
+def mechanism_not_established_verdict(findings: list[Finding]) -> MechanismVerdict:
+    """The MVP report stays deliberately conservative until its proposed control is run."""
+    blocking = [finding.id for finding in findings if finding.status in ("Inferred", "Unresolved")]
+    if len(blocking) < 2:
+        raise ValueError("Mechanism verdict requires inferred and unresolved blockers")
+    return MechanismVerdict(
+        label="MECHANISM_NOT_ESTABLISHED",
+        reason="The frozen trace is compatible with an interpretation, but the report retains an unresolved confound and requires the proposed discriminating control before treating the mechanism as established.",
+        blocking_finding_ids=blocking,
+    )

@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .analysis import parse_dataset, source_refs
+from .analysis import parse_dataset, screen_source_relevance, source_refs
 from .models import (
     ClaimInput,
     ControlProposal,
@@ -15,9 +15,10 @@ from .models import (
     RunState,
     RunSummary,
     SourceInput,
+    SourceRelevance,
     now_iso,
 )
-from .validation import validate_control, validate_findings
+from .validation import mechanism_not_established_verdict, validate_control, validate_findings
 
 
 class RunStore:
@@ -91,6 +92,15 @@ class RunStore:
         self._write(run / "inputs" / "sources.json", [source.model_dump(mode="json") for source in sources])
         return self.get_summary(run_id)
 
+    def save_research_setup(self, run_id: str, claim: ClaimInput, sources: list[SourceInput]) -> RunSummary:
+        """Persist a discovered source set atomically while the run is still editable."""
+        run = self._require_draft(run_id)
+        if not sources:
+            raise ValueError("the literature search did not return usable source abstracts")
+        self._write(run / "inputs" / "claim.json", claim.model_dump(mode="json"))
+        self._write(run / "inputs" / "sources.json", [source.model_dump(mode="json") for source in sources])
+        return self.get_summary(run_id)
+
     def update_methods(self, run_id: str, methods: str) -> RunSummary:
         run = self._require_draft(run_id)
         if len(methods.strip()) < 20 or len(methods) > 20_000:
@@ -104,16 +114,33 @@ class RunStore:
         (run / "inputs" / "dataset.csv").write_bytes(dataset)
         return {"run": self.get_summary(run_id).model_dump(mode="json"), "dataset": analysis.model_dump(mode="json"), "evidence_ref": ref.model_dump(mode="json")}
 
+    def load_demo_data(self, run_id: str, fixture_root: Path | str) -> RunSummary:
+        """Copy only the explicitly labelled demonstration dataset into a draft run."""
+        run = self._require_draft(run_id)
+        root = Path(fixture_root).resolve()
+        methods = (root / "methods.md").read_text(encoding="utf-8")
+        dataset = (root / "dataset.csv").read_bytes()
+        if len(methods.strip()) < 20:
+            raise ValueError("demo methods are invalid")
+        parse_dataset(dataset)
+        (run / "inputs" / "methods.md").write_text(methods, encoding="utf-8")
+        (run / "inputs" / "dataset.csv").write_bytes(dataset)
+        return self.get_summary(run_id)
+
     def prepare_packet(self, run_id: str) -> dict[str, Any]:
         run = self._require_state(run_id, RunState.DRAFT)
         claim, sources, methods, raw = self._load_inputs(run)
         if not sources:
             raise ValueError("at least one source is required")
         dataset, data_ref = parse_dataset(raw)
+        source_relevance = screen_source_relevance(claim, sources)
+        if not any(item.verdict != "limited" for item in source_relevance):
+            raise ValueError("retrieved references do not form a usable relevance boundary; refine the research question")
         refs = [*source_refs(sources), data_ref]
         packet = {
             "claim": claim.model_dump(mode="json"),
             "sources": [source.model_dump(mode="json") for source in sources],
+            "source_relevance": [item.model_dump(mode="json") for item in source_relevance],
             "methods": methods,
             "dataset": dataset.model_dump(mode="json"),
             "evidence_refs": [ref.model_dump(mode="json") for ref in refs],
@@ -129,7 +156,11 @@ class RunStore:
             evidence_ids = expectation.get("evidence_ref_ids", [])
             if not evidence_ids or any(item not in known_ids for item in evidence_ids):
                 raise ValueError("source inspection must cite supplied source evidence")
-        payload = {"expectations": expectations, "inspected_at": now_iso()}
+        payload = {
+            "expectations": expectations,
+            "source_relevance": packet.get("source_relevance", []),
+            "inspected_at": now_iso(),
+        }
         self._write(run / "analysis" / "source-inspection.json", payload)
         return self._transition(run_id, RunState.SOURCES_INSPECTED).model_dump(mode="json")
 
@@ -173,7 +204,9 @@ class RunStore:
             findings=findings,
             control=control,
             sources=[SourceInput.model_validate(item) for item in packet["sources"]],
+            source_relevance=[SourceRelevance.model_validate(item) for item in packet.get("source_relevance", [])],
             dataset=DatasetAnalysis.model_validate(packet["dataset"]),
+            verdict=mechanism_not_established_verdict(findings),
             exported_at=now_iso(),
         )
         self._write(run / "report" / "report.json", report.model_dump(mode="json"))
@@ -183,7 +216,14 @@ class RunStore:
     def get_report(self, run_id: str) -> Report:
         if self.get_summary(run_id).state != RunState.EXPORTED:
             raise ValueError("run must be EXPORTED")
-        return Report.model_validate(self._read(self._run_dir(run_id) / "report" / "report.json"))
+        payload = self._read(self._run_dir(run_id) / "report" / "report.json")
+        # Existing local demo runs predate the explicit verdict contract. They remain
+        # readable, but are rendered with the same conservative red-team verdict.
+        if "verdict" not in payload:
+            findings = [Finding.model_validate(item) for item in payload["findings"]]
+            payload["verdict"] = mechanism_not_established_verdict(findings).model_dump(mode="json")
+        payload.setdefault("source_relevance", [])
+        return Report.model_validate(payload)
 
     def get_packet(self, run_id: str) -> dict[str, Any]:
         return self._packet(self._run_dir(run_id))
@@ -195,11 +235,18 @@ class RunStore:
         if summary.state == RunState.DRAFT:
             present = [path.name for path in (run / "inputs").iterdir() if path.is_file()]
             result["input_artifacts"] = sorted(present)
+            result["draft"] = self._draft(run)
         else:
             result["packet"] = self._packet(run)
         if summary.state == RunState.EXPORTED:
             result["report"] = self.get_report(run_id).model_dump(mode="json")
         return result
+
+    def _draft(self, run: Path) -> dict[str, Any]:
+        claim = self._read(run / "inputs" / "claim.json") if (run / "inputs" / "claim.json").is_file() else None
+        sources = self._read(run / "inputs" / "sources.json") if (run / "inputs" / "sources.json").is_file() else []
+        methods = (run / "inputs" / "methods.md").read_text(encoding="utf-8") if (run / "inputs" / "methods.md").is_file() else ""
+        return {"claim": claim, "sources": sources, "methods": methods, "dataset_ready": (run / "inputs" / "dataset.csv").is_file()}
 
     def get_report_markdown(self, run_id: str) -> str:
         report = self.get_report(run_id)
@@ -212,6 +259,11 @@ class RunStore:
             "## Claim",
             "",
             report.claim,
+            "",
+            "## Mechanism verdict",
+            "",
+            f"**{report.verdict.label.replace('_', ' ')}** — {report.verdict.reason}",
+            f"- Blocking findings: {', '.join(report.verdict.blocking_finding_ids)}",
             "",
             "## Findings",
         ]
@@ -229,7 +281,9 @@ class RunStore:
         lines.extend(["", "## Provenance", ""])
         for source in report.sources:
             locator = source.locator.section or (f"page {source.locator.page}" if source.locator.page else "provided excerpt")
-            lines.append(f"- {source.id}: {source.title} ({source.year}), {locator}")
+            screen = next((item for item in report.source_relevance if item.source_id == source.id), None)
+            relevance = f"; lexical screen: {screen.verdict}" if screen else ""
+            lines.append(f"- {source.id}: {source.title} ({source.year}), {locator}{relevance}")
         return "\n".join(lines) + "\n"
 
     def _run_dir(self, run_id: str) -> Path:

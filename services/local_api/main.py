@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from packages.core.discovery import OpenAlexReferenceDiscovery, ReferenceDiscovery, ReferenceDiscoveryError
 from packages.core.models import ClaimInput, SourceInput
 from packages.core.store import RunStore
 
@@ -29,6 +30,10 @@ class MethodsRequest(StrictRequest):
     methods: str = Field(min_length=20, max_length=20_000)
 
 
+class GatherReferencesRequest(StrictRequest):
+    research_question: str = Field(min_length=10, max_length=1000)
+
+
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
@@ -40,14 +45,17 @@ def _store() -> RunStore:
 def _error(exc: Exception) -> HTTPException:
     if isinstance(exc, FileNotFoundError):
         return HTTPException(status_code=404, detail={"code": "RUN_NOT_FOUND", "message": "Run was not found.", "details": []})
+    if isinstance(exc, ReferenceDiscoveryError):
+        return HTTPException(status_code=503, detail={"code": "REFERENCE_DISCOVERY_UNAVAILABLE", "message": str(exc), "details": []})
     message = str(exc)
     code = "INVALID_STATE" if message.startswith("run must be") else "INPUT_LIMIT_EXCEEDED" if "limit" in message or "MiB" in message else "INVALID_INPUT"
     return HTTPException(status_code=422, detail={"code": code, "message": message, "details": []})
 
 
-def create_app(store: RunStore | None = None) -> FastAPI:
+def create_app(store: RunStore | None = None, discovery: ReferenceDiscovery | None = None) -> FastAPI:
     app = FastAPI(title="GroundLoop local API", docs_url=None, redoc_url=None)
     app.state.store = store or _store()
+    app.state.discovery = discovery or OpenAlexReferenceDiscovery()
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[os.environ.get("GROUNDLOOP_WEB_ORIGIN", "http://127.0.0.1:5173")],
@@ -88,6 +96,15 @@ def create_app(store: RunStore | None = None) -> FastAPI:
         except Exception as exc:
             raise _error(exc) from exc
 
+    @app.post("/api/runs/{run_id}/gather-references")
+    def gather_references(run_id: str, request: GatherReferencesRequest) -> dict[str, Any]:
+        try:
+            sources = app.state.discovery.search(request.research_question)
+            app.state.store.save_research_setup(run_id, ClaimInput(claim=request.research_question), sources)
+            return app.state.store.get_detail(run_id)
+        except Exception as exc:
+            raise _error(exc) from exc
+
     @app.post("/api/runs/{run_id}/sources")
     def update_sources(run_id: str, request: SourcesRequest) -> dict[str, Any]:
         try:
@@ -109,6 +126,15 @@ def create_app(store: RunStore | None = None) -> FastAPI:
                 raise ValueError("dataset must be a CSV upload")
             raw = await file.read(5 * 1024 * 1024 + 1)
             return app.state.store.update_dataset(run_id, raw)
+        except Exception as exc:
+            raise _error(exc) from exc
+
+    @app.post("/api/runs/{run_id}/demo-data")
+    def load_demo_data(run_id: str) -> dict[str, Any]:
+        try:
+            fixture = _repo_root() / "fixtures" / "four_wire_contact_control"
+            app.state.store.load_demo_data(run_id, fixture)
+            return app.state.store.get_detail(run_id)
         except Exception as exc:
             raise _error(exc) from exc
 

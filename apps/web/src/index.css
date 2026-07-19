@@ -131,10 +131,10 @@
 
 ::selection { background: #171717; color: white; }
 
-.eyebrow { font-size: 0.68rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: color-mix(in srgb, currentColor 52%, transparent); }
+.eyebrow { font-size: 0.75rem; font-weight: 650; letter-spacing: 0.1em; text-transform: uppercase; color: color-mix(in srgb, currentColor 62%, transparent); }
 .claim-text { margin-top: 1rem; font-size: 1.05rem; line-height: 1.65; letter-spacing: -0.02em; }
 .source-card { border: 1px solid rgba(0,0,0,.12); padding: 0.9rem; background: white; }
-.status { display: inline-flex; border: 1px solid currentColor; padding: 0.19rem 0.42rem; font-size: 0.62rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.status { display: inline-flex; border: 1px solid currentColor; padding: 0.23rem 0.46rem; font-size: 0.69rem; font-weight: 650; letter-spacing: 0.07em; text-transform: uppercase; }
 .status-established { color: #215f47; background: #edf8f1; }
 .status-observed { color: #285479; background: #eef6fb; }
 .status-inferred { color: #805720; background: #fff7df; }

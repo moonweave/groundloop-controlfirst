@@ -87,8 +87,11 @@ def test_store_requires_ordered_evidence_workflow(tmp_path: Path) -> None:
 
     assert report.state.value == "EXPORTED"
     assert report.control.priority == "high"
+    assert report.verdict.label == "MECHANISM_NOT_ESTABLISHED"
+    assert {item.verdict for item in report.source_relevance} == {"contextual"}
     assert store.get_summary(run.run_id).state.value == "EXPORTED"
     markdown = store.get_report_markdown(run.run_id)
+    assert "MECHANISM NOT ESTABLISHED" in markdown
     assert "### Established" in markdown
     assert "## ControlFirst" in markdown
     assert "src-four-wire-principle" in markdown
@@ -106,3 +109,24 @@ def test_report_cannot_be_read_before_export(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="EXPORTED"):
         store.get_report(run.run_id)
+
+
+def test_existing_report_is_read_with_the_conservative_verdict(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    run = store.create_fixture_run(FIXTURE)
+    store.prepare_packet(run.run_id)
+    store.inspect_sources(run.run_id, [{"expected_observation": "Four-terminal sensing reduces lead contribution.", "condition": "The source applies to the measurement configuration.", "falsifier": "The supplied source does not state this principle.", "evidence_ref_ids": ["src-four-wire-principle:evidence"]}])
+    store.analyze_dataset(run.run_id)
+    store.reconcile_findings(run.run_id, _findings())
+    store.propose_control(run.run_id, _control())
+    store.export_report(run.run_id)
+    report_path = tmp_path / "runs" / run.run_id / "report" / "report.json"
+    payload = store._read(report_path)
+    payload.pop("verdict")
+    payload.pop("source_relevance")
+    store._write(report_path, payload)
+
+    report = store.get_report(run.run_id)
+
+    assert report.verdict.label == "MECHANISM_NOT_ESTABLISHED"
+    assert report.source_relevance == []

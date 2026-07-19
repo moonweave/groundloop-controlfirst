@@ -42,21 +42,25 @@ def create_evidence_packet(run_id: str) -> dict[str, Any]:
     return _result(operation)
 
 
-@mcp.tool(description=f"Return source-grounded expectations for Codex to inspect and persist that inspection. {GUIDANCE}")
+@mcp.tool(description=f"Return a source-by-source lexical relevance screen and expectations for Codex to adjudicate. A direct screen is not source support; every source still requires inspection. {GUIDANCE}")
 def inspect_sources(run_id: str) -> dict[str, Any]:
     def operation() -> dict[str, Any]:
         packet = store.get_packet(run_id)
-        source_refs = [item["id"] for item in packet["evidence_refs"] if item["kind"] == "source"]
-        expectations = [
-            {
-                "expected_observation": "The cited source excerpt states a measurement principle or confound relevant to the claim.",
-                "condition": "Only the supplied source excerpt and locator are treated as source evidence.",
-                "falsifier": "The excerpt does not support the proposed principle or confound.",
-                "evidence_ref_ids": source_refs,
-            }
-        ]
+        source_refs = {item["artifact_id"]: item["id"] for item in packet["evidence_refs"] if item["kind"] == "source"}
+        screens = packet.get("source_relevance", [])
+        expectations = []
+        for screen in screens:
+            source_id = screen["source_id"]
+            expectations.append(
+                {
+                    "expected_observation": f"Source {source_id} may address the claim terms: {', '.join(screen['matched_terms']) or 'none'}.",
+                    "condition": "Only this supplied source excerpt and locator are treated as source evidence; lexical overlap is not support.",
+                    "falsifier": "The excerpt does not state a measurement principle, confound, or limitation relevant to the proposed mechanism.",
+                    "evidence_ref_ids": [source_refs[source_id]],
+                }
+            )
         store.inspect_sources(run_id, expectations)
-        return {"expectations": expectations, "evidence_refs": [item for item in packet["evidence_refs"] if item["kind"] == "source"]}
+        return {"source_relevance": screens, "expectations": expectations, "evidence_refs": [item for item in packet["evidence_refs"] if item["kind"] == "source"]}
     return _result(operation)
 
 

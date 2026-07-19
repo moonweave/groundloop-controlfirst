@@ -1,9 +1,13 @@
 from __future__ import annotations
-import csv, hashlib, io, math
-from .models import DatasetAnalysis, EvidenceRef, Locator, SourceInput
+import csv, hashlib, io, math, re
+from .models import ClaimInput, DatasetAnalysis, EvidenceRef, Locator, SourceInput, SourceRelevance
 
 MAX_BYTES, MAX_ROWS = 5 * 1024 * 1024, 10_000
 REQUIRED = ("temperature_c", "two_wire_resistance_ohm")
+_STOP_WORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "by", "can", "change", "data", "does", "for", "from",
+    "in", "is", "it", "measurement", "of", "on", "or", "sample", "that", "the", "this", "to", "with",
+}
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -44,3 +48,31 @@ def source_refs(sources: list[SourceInput]) -> list[EvidenceRef]:
         serialized=source.model_dump_json().encode()
         refs.append(EvidenceRef(id=f"{source.id}:evidence",kind="source",artifact_id=source.id,locator=source.locator,excerpt=source.untrusted_content[:1000],sha256=sha256_bytes(serialized)))
     return refs
+
+
+def screen_source_relevance(claim: ClaimInput, sources: list[SourceInput]) -> list[SourceRelevance]:
+    """Screen sources against the claim using only transparent lexical overlap.
+
+    This is deliberately not a relevance ranking model. It tells Codex which supplied
+    abstracts share claim terms so it can adjudicate each source without treating a
+    search result as support for a mechanism.
+    """
+    claim_terms = _meaningful_terms(claim.claim)
+    screens: list[SourceRelevance] = []
+    for source in sources:
+        source_terms = _meaningful_terms(f"{source.title} {source.untrusted_content}")
+        matched = sorted(claim_terms & source_terms)[:12]
+        verdict = "direct" if len(matched) >= 2 else "contextual" if matched else "limited"
+        if matched:
+            reason = f"Lexical overlap with the claim: {', '.join(matched)}. This does not establish source support."
+        else:
+            reason = "No material lexical overlap with the claim; retain only as limited context, not mechanism support."
+        screens.append(SourceRelevance(source_id=source.id, verdict=verdict, matched_terms=matched, reason=reason))
+    return screens
+
+
+def _meaningful_terms(text: str) -> set[str]:
+    return {
+        token for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]*", text.lower())
+        if len(token) > 2 and token not in _STOP_WORDS
+    }
