@@ -88,9 +88,21 @@ def test_store_requires_ordered_evidence_workflow(tmp_path: Path) -> None:
     assert report.state.value == "EXPORTED"
     assert report.control.priority == "high"
     assert store.get_summary(run.run_id).state.value == "EXPORTED"
+    markdown = store.get_report_markdown(run.run_id)
+    assert "### Established" in markdown
+    assert "## ControlFirst" in markdown
+    assert "src-four-wire-principle" in markdown
 
 
 def test_store_rejects_path_like_run_id(tmp_path: Path) -> None:
     store = RunStore(tmp_path / "runs")
     with pytest.raises(ValueError, match="invalid run id"):
         store.get_summary("../../etc")
+
+
+def test_report_cannot_be_read_before_export(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    run = store.create_fixture_run(FIXTURE)
+
+    with pytest.raises(ValueError, match="EXPORTED"):
+        store.get_report(run.run_id)

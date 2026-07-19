@@ -181,6 +181,8 @@ class RunStore:
         return report
 
     def get_report(self, run_id: str) -> Report:
+        if self.get_summary(run_id).state != RunState.EXPORTED:
+            raise ValueError("run must be EXPORTED")
         return Report.model_validate(self._read(self._run_dir(run_id) / "report" / "report.json"))
 
     def get_packet(self, run_id: str) -> dict[str, Any]:

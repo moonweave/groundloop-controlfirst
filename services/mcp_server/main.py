@@ -86,3 +86,7 @@ def export_report(run_id: str) -> dict[str, Any]:
 
 def run() -> None:
     mcp.run()
+
+
+if __name__ == "__main__":
+    run()

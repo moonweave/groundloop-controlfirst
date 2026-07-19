@@ -17,7 +17,13 @@ test = ["pytest>=8,<10", "httpx>=0.27,<1"]
 groundloop-api = "services.local_api.main:run"
 groundloop-mcp = "services.mcp_server.main:run"
 
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["packages*", "services*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-

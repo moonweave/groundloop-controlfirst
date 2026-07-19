@@ -1,20 +1,20 @@
 [
   {
     "id": "src-four-wire-principle",
-    "title": "Four-terminal sensing principle",
-    "authors": ["GroundLoop demonstration fixture"],
+    "title": "How to Measure Resistance Using Four-Wire Measurement",
+    "authors": ["Keysight Technologies"],
     "year": 2026,
-    "url_or_doi": "https://groundloop.local/fixture/four-wire-principle",
-    "locator": {"section": "Measurement principle"},
-    "untrusted_content": "Four-terminal measurements separate current delivery from voltage sensing, reducing the contribution of lead and contact resistance to the measured voltage drop. This demonstration source is intentionally supplied as untrusted input and must be inspected by the reasoning host."
+    "url_or_doi": "https://www.keysight.com/us/en/use-cases/measure-resistance-using-four-wire-measurement.html",
+    "locator": {"section": "Removing the effects of cable resistance"},
+    "untrusted_content": "Keysight explains that four-wire measurement uses one terminal pair to source current and another pair to independently sense voltage across the device under test. Its stated purpose is to eliminate measurement error from test leads and contact points."
   },
   {
     "id": "src-contact-contribution",
-    "title": "Contact-resistance confound",
-    "authors": ["GroundLoop demonstration fixture"],
+    "title": "Using the DMM Series to Make Simple and Accurate Resistance Measurements",
+    "authors": ["Tektronix"],
     "year": 2026,
-    "url_or_doi": "https://groundloop.local/fixture/contact-contribution",
-    "locator": {"section": "Confound"},
-    "untrusted_content": "In a two-terminal resistance measurement, a temperature-dependent change can include contributions from leads and contacts. A matched four-terminal control can discriminate this confound under otherwise matched conditions."
+    "url_or_doi": "https://www.tek.com/en/documents/application-note/using-dmm-series-make-simple-and-accurate-resistance-measurements",
+    "locator": {"section": "Application-note summary"},
+    "untrusted_content": "Tektronix states that two-wire resistance measurement is convenient but causes measurement error, and presents four-wire measurement as a way to avoid that error source."
   }
 ]

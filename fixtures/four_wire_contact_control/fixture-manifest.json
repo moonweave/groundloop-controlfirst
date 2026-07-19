@@ -1,0 +1,6 @@
+{
+  "name": "four_wire_contact_control",
+  "purpose": "A bounded demonstration of separating a two-wire temperature trace from the inference that it proves a bulk transition.",
+  "sources_verified_on": "2026-07-19",
+  "limitations": "The CSV is synthetic demonstration data. The fixture does not establish a property of a physical sample."
+}
