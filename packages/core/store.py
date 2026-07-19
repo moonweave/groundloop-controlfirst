@@ -79,6 +79,31 @@ class RunStore:
         (run / "inputs" / "dataset.csv").write_bytes(dataset)
         return self.get_summary(run_id)
 
+    def update_claim(self, run_id: str, claim: ClaimInput) -> RunSummary:
+        run = self._require_draft(run_id)
+        self._write(run / "inputs" / "claim.json", claim.model_dump(mode="json"))
+        return self.get_summary(run_id)
+
+    def update_sources(self, run_id: str, sources: list[SourceInput]) -> RunSummary:
+        run = self._require_draft(run_id)
+        if not sources:
+            raise ValueError("at least one source is required")
+        self._write(run / "inputs" / "sources.json", [source.model_dump(mode="json") for source in sources])
+        return self.get_summary(run_id)
+
+    def update_methods(self, run_id: str, methods: str) -> RunSummary:
+        run = self._require_draft(run_id)
+        if len(methods.strip()) < 20 or len(methods) > 20_000:
+            raise ValueError("methods must contain 20–20,000 characters")
+        (run / "inputs" / "methods.md").write_text(methods, encoding="utf-8")
+        return self.get_summary(run_id)
+
+    def update_dataset(self, run_id: str, dataset: bytes) -> dict[str, Any]:
+        run = self._require_draft(run_id)
+        analysis, ref = parse_dataset(dataset)
+        (run / "inputs" / "dataset.csv").write_bytes(dataset)
+        return {"run": self.get_summary(run_id).model_dump(mode="json"), "dataset": analysis.model_dump(mode="json"), "evidence_ref": ref.model_dump(mode="json")}
+
     def prepare_packet(self, run_id: str) -> dict[str, Any]:
         run = self._require_state(run_id, RunState.DRAFT)
         claim, sources, methods, raw = self._load_inputs(run)
@@ -160,6 +185,50 @@ class RunStore:
 
     def get_packet(self, run_id: str) -> dict[str, Any]:
         return self._packet(self._run_dir(run_id))
+
+    def get_detail(self, run_id: str) -> dict[str, Any]:
+        summary = self.get_summary(run_id)
+        run = self._run_dir(run_id)
+        result: dict[str, Any] = {"run": summary.model_dump(mode="json")}
+        if summary.state == RunState.DRAFT:
+            present = [path.name for path in (run / "inputs").iterdir() if path.is_file()]
+            result["input_artifacts"] = sorted(present)
+        else:
+            result["packet"] = self._packet(run)
+        if summary.state == RunState.EXPORTED:
+            result["report"] = self.get_report(run_id).model_dump(mode="json")
+        return result
+
+    def get_report_markdown(self, run_id: str) -> str:
+        report = self.get_report(run_id)
+        groups = {status: [item for item in report.findings if item.status == status] for status in ("Established", "Observed", "Inferred", "Unresolved")}
+        lines = [
+            "# GroundLoop: ControlFirst report",
+            "",
+            f"**Run:** `{report.run_id}`",
+            "",
+            "## Claim",
+            "",
+            report.claim,
+            "",
+            "## Findings",
+        ]
+        for status, findings in groups.items():
+            lines.extend(["", f"### {status}"])
+            for finding in findings:
+                lines.extend([f"- {finding.statement}", f"  - Evidence: {', '.join(finding.evidence_ref_ids)}"])
+                if finding.uncertainty:
+                    lines.append(f"  - Uncertainty: {finding.uncertainty}")
+                if finding.alternative_explanation:
+                    lines.append(f"  - Alternative: {finding.alternative_explanation}")
+        lines.extend(["", "## ControlFirst", "", f"**Confound:** {report.control.confound}", "", report.control.experiment, "", "### Outcomes"])
+        for outcome in report.control.outcomes:
+            lines.append(f"- If {outcome.if_}, then {outcome.then}")
+        lines.extend(["", "## Provenance", ""])
+        for source in report.sources:
+            locator = source.locator.section or (f"page {source.locator.page}" if source.locator.page else "provided excerpt")
+            lines.append(f"- {source.id}: {source.title} ({source.year}), {locator}")
+        return "\n".join(lines) + "\n"
 
     def _run_dir(self, run_id: str) -> Path:
         try:
