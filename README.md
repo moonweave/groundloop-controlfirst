@@ -31,16 +31,20 @@ The flagship output is a **ControlFirst** recommendation: the smallest next cont
 
 This repository is the initial Build Week scaffold. The working prototype will focus on one research claim, a small set of foundational sources, and one data artifact. It is intentionally not a claim-certification system and does not replace peer review.
 
+The MVP is a Codex-compatible MCP server with a local companion web UI. GPT-5.6 reasons through Codex; GroundLoop performs local deterministic analysis and does not require the researcher to provide an OpenAI API key.
+
+See the [MVP technical specification](docs/spec.md) for the product boundary, and the [implementation contract](docs/implementation-contract.md) for the fixed demo, API/MCP contracts, validation rules, security enforcement, and build order.
+
 ## Codex and GPT-5.6
 
-Codex is being used to shape the product workflow, scaffold the prototype, and iterate on the implementation with a researcher’s domain constraints in view.
+Codex is the interaction surface for the MCP workflow as well as the implementation partner for the prototype. A researcher asks Codex to analyse an active GroundLoop evidence packet; Codex invokes GroundLoop's local MCP tools.
 
-GPT-5.6 is the reasoning layer for connecting source-grounded expectations to observations, identifying contradictions and confounds, and drafting a targeted control experiment. Deterministic checks remain responsible for observable data facts; model-generated interpretations are kept separate and traceable.
+GPT-5.6 is the bounded reasoning layer for connecting source-grounded expectations to observations, identifying contradictions and confounds, and drafting a targeted control experiment. Deterministic checks remain responsible for observable data facts; model-generated interpretations are kept separate and traceable.
 
 ## Planned prototype flow
 
-1. Enter one claim and its relevant foundational sources.
-2. Upload one figure or CSV and an optional methods note.
+1. Enter one claim and its relevant foundational source excerpts.
+2. Upload one CSV and an optional methods note.
 3. Review top-down and bottom-up evidence traces.
 4. Inspect the Established / Observed / Inferred / Unresolved distinctions.
 5. Receive a ControlFirst recommendation with the evidence it is intended to discriminate.

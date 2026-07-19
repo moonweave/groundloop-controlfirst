@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <title>GroundLoop — ControlFirst report prototype</title>
+    <style>
+      :root {
+        --paper: #f4f0e7;
+        --paper-deep: #eae3d5;
+        --ink: #20211e;
+        --ink-blue: #17324d;
+        --moss: #355b3c;
+        --warm-gray: #7a6955;
+        --unresolved: #6a4a4a;
+        --copper: #c8502a;
+        --line: #c7beae;
+        --muted: #746f66;
+        --serif: Iowan Old Style, Palatino Linotype, Book Antiqua, Palatino, serif;
+        --sans: Avenir Next, Gill Sans, Trebuchet MS, sans-serif;
+        --mono: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: var(--ink);
+        background:
+          linear-gradient(rgba(32, 33, 30, .035) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(32, 33, 30, .035) 1px, transparent 1px),
+          var(--paper);
+        background-size: 28px 28px;
+        font-family: var(--sans);
+      }
+      .shell { min-height: 100vh; display: grid; grid-template-columns: 76px minmax(0, 1fr); }
+      .rail {
+        min-height: 100%; padding: 22px 14px; background: #252722; color: #f7f3e9;
+        display: flex; flex-direction: column; align-items: center; gap: 20px;
+      }
+      .mark { width: 36px; height: 36px; border: 1px solid #f7f3e9; border-radius: 50%; display: grid; place-items: center; font-family: var(--serif); font-size: 20px; }
+      .rail-line { width: 1px; height: 34px; background: #71766c; margin: 6px 0; }
+      .rail-item { width: 42px; height: 42px; display: grid; place-items: center; color: #d4d0c4; border: 1px solid transparent; font-family: var(--mono); font-size: 11px; }
+      .rail-item.active { color: white; border-color: #65695f; border-left: 3px solid var(--copper); background: #353832; }
+      .rail-spacer { flex: 1; }
+      main { max-width: 1440px; width: 100%; margin: 0 auto; padding: 32px clamp(20px, 4vw, 64px) 60px; }
+      .topline, .meta, .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+      .topline { display: flex; justify-content: space-between; padding-bottom: 18px; color: var(--muted); border-bottom: 1px solid var(--line); }
+      h1 { margin: 28px 0 8px; font-family: var(--serif); font-size: clamp(42px, 6vw, 78px); font-weight: 400; letter-spacing: -.055em; line-height: .92; }
+      h1 em { color: var(--copper); font-style: normal; }
+      .lede { max-width: 740px; color: #56534d; font-family: var(--serif); font-size: 20px; line-height: 1.4; }
+      .claim { margin: 38px 0 22px; padding: 20px 24px; border: 1px solid var(--ink); background: rgba(255,255,255,.25); display: grid; grid-template-columns: 132px 1fr; gap: 18px; }
+      .claim strong { color: var(--ink-blue); font-family: var(--serif); font-size: 22px; font-weight: 400; line-height: 1.3; }
+      .claim p { margin: 5px 0 0; color: var(--muted); font-size: 13px; }
+      .trace { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+      .trace-panel { min-height: 220px; padding: 24px; }
+      .trace-panel + .trace-panel { border-left: 1px solid var(--line); }
+      .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+      .panel-head h2, .matrix-title, .control h2 { margin: 0; font-family: var(--serif); font-size: 24px; font-weight: 400; letter-spacing: -.02em; }
+      .chip { padding: 4px 7px; border: 1px solid currentColor; font: 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+      .source-card, .measure { margin-top: 22px; padding: 14px 0; border-top: 1px solid var(--line); }
+      .source-card:first-of-type { border-top: 3px solid var(--ink-blue); }
+      .measure { border-top: 3px solid var(--moss); }
+      .source-card strong, .measure strong { display: block; font-family: var(--serif); font-weight: 400; font-size: 17px; }
+      .source-card p, .measure p { margin: 7px 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+      .locator { color: var(--ink-blue); font: 10px var(--mono); letter-spacing: .04em; }
+      .spark { height: 46px; width: 100%; margin-top: 10px; border-bottom: 1px solid #a2ac9e; position: relative; overflow: hidden; }
+      .spark svg { width: 100%; height: 100%; }
+      .matrix-title { margin: 32px 0 14px; }
+      .matrix { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); }
+      .finding { min-height: 260px; padding: 18px; border-right: 1px solid var(--line); position: relative; }
+      .finding:last-child { border-right: 0; }
+      .finding::before { content: ''; display: block; width: 24px; height: 3px; margin-bottom: 22px; background: currentColor; }
+      .finding h3 { margin: 0; font: 12px var(--mono); letter-spacing: .07em; text-transform: uppercase; }
+      .finding p { margin: 16px 0; font-family: var(--serif); font-size: 17px; line-height: 1.35; }
+      .finding .rule { position: absolute; bottom: 18px; left: 18px; right: 18px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+      .established { color: var(--ink-blue); background: rgba(23,50,77,.035); }
+      .observed { color: var(--moss); background: rgba(53,91,60,.04); }
+      .inferred { color: var(--warm-gray); background: rgba(122,105,85,.035); }
+      .unresolved { color: var(--unresolved); background: rgba(106,74,74,.035); }
+      .ledger { margin-top: 30px; border-top: 1px solid var(--ink); }
+      .ledger h2 { margin: 14px 0; font: 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+      table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      th, td { padding: 10px 8px; text-align: left; border-top: 1px solid var(--line); }
+      th { color: var(--muted); font: 10px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+      td:last-child { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+      .control { margin-top: 42px; display: grid; grid-template-columns: minmax(170px,.7fr) 1.3fr 1.2fr; border: 2px solid var(--copper); background: #fbf6ec; }
+      .control > * { padding: 22px; }
+      .control .label { color: var(--copper); font: 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+      .control h2 { color: var(--copper); margin-top: 10px; font-size: 30px; }
+      .control .experiment { border-left: 1px solid #d78f78; border-right: 1px solid #d78f78; font-family: var(--serif); font-size: 21px; line-height: 1.3; }
+      .outcome { display: grid; grid-template-columns: 18px 1fr; gap: 10px; margin-bottom: 15px; font-size: 13px; line-height: 1.4; }
+      .dot { width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; background: var(--copper); }
+      @media (max-width: 880px) {
+        .shell { grid-template-columns: 1fr; } .rail { min-height: auto; flex-direction: row; justify-content: space-between; padding: 12px 18px; } .rail-line, .rail-item:not(.active), .rail-spacer { display: none; }
+        .trace, .matrix, .control { grid-template-columns: 1fr; } .trace-panel + .trace-panel, .finding, .control .experiment { border-left: 0; } .trace-panel + .trace-panel, .finding, .control .experiment { border-top: 1px solid var(--line); border-right: 0; }
+        .claim { grid-template-columns: 1fr; } .finding { min-height: 190px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="rail" aria-label="GroundLoop navigation">
+        <div class="mark" aria-label="GroundLoop">G</div>
+        <div class="rail-line"></div>
+        <div class="rail-item">RUN</div>
+        <div class="rail-item">SRC</div>
+        <div class="rail-item active">RPT</div>
+        <div class="rail-spacer"></div>
+        <div class="rail-item">SET</div>
+      </aside>
+      <main>
+        <header>
+          <div class="topline"><span>Local report / GL-4W-001</span><span>Exported · provenance complete</span></div>
+          <h1>GroundLoop: <em>ControlFirst</em></h1>
+          <p class="lede">What the evidence supports, what it only suggests, and the smallest next experiment that would change the conclusion.</p>
+        </header>
+
+        <section class="claim" aria-labelledby="claim-title">
+          <div class="eyebrow" id="claim-title">Active claim</div>
+          <div><strong>The temperature-dependent resistance change demonstrates a bulk conductivity transition.</strong><p>Method qualifier: supplied trace was acquired in a two-wire configuration.</p></div>
+        </section>
+
+        <section class="trace" aria-label="Evidence traces">
+          <article class="trace-panel">
+            <div class="panel-head"><h2>Top-down theory</h2><span class="chip" style="color:#17324d">2 sources</span></div>
+            <div class="source-card"><strong>Two-wire resistance includes series contributions.</strong><p>Lead and contact resistance may be present in the measured signal.</p><span class="locator">SRC-001 · p.12 · SHA 8e1a…</span></div>
+            <div class="source-card"><strong>Four-wire measurement isolates the device path.</strong><p>The same sweep can discriminate a bulk effect from series resistance.</p><span class="locator">SRC-002 · §4 · SHA 71bc…</span></div>
+          </article>
+          <article class="trace-panel">
+            <div class="panel-head"><h2>Bottom-up measurement</h2><span class="chip" style="color:#355b3c">CSV verified</span></div>
+            <div class="measure"><strong>Resistance declines across the measured range.</strong><p>2,341 Ω at 20 °C → 412 Ω at 120 °C. Change: −82.4% across rows 2–41.</p><span class="locator" style="color:#355b3c">DATA-001 · rows 2–41 · SHA 4d5c…</span><div class="spark" aria-label="Resistance trend chart"><svg viewBox="0 0 500 46" preserveAspectRatio="none"><polyline fill="none" stroke="#355b3c" stroke-width="3" points="0,4 24,9 52,14 80,19 105,23 135,27 165,29 195,33 225,34 255,36 285,38 315,39 345,40 375,41 405,41 435,42 470,42 500,42" /><line x1="0" y1="42" x2="500" y2="42" stroke="#a2ac9e" /></svg></div></div>
+          </article>
+        </section>
+
+        <h2 class="matrix-title">Evidence status</h2>
+        <section class="matrix" aria-label="Evidence status findings">
+          <article class="finding established"><h3>Established</h3><p>Two-wire measurements can include lead and contact resistance.</p><div class="rule">Source-backed general measurement principle.</div></article>
+          <article class="finding observed"><h3>Observed</h3><p>The supplied trace has a temperature-dependent resistance change.</p><div class="rule">Deterministic CSV result, not a mechanism.</div></article>
+          <article class="finding inferred"><h3>Inferred</h3><p>The pattern is consistent with a bulk conductivity transition.</p><div class="rule">Alternative: contact or lead contribution remains plausible.</div></article>
+          <article class="finding unresolved"><h3>Unresolved</h3><p>How much of the change comes from contacts and leads?</p><div class="rule">Missing discriminating evidence: matched four-wire sweep.</div></article>
+        </section>
+
+        <section class="ledger" aria-labelledby="ledger-title"><h2 id="ledger-title">Provenance ledger</h2><table><thead><tr><th>Evidence</th><th>Locator</th><th>Supports</th><th>Integrity</th></tr></thead><tbody><tr><td>Four-wire measurement excerpt</td><td>Source 002 · §4</td><td>Established / Unresolved</td><td>71bc…</td></tr><tr><td>Two-wire resistance CSV</td><td>rows 2–41</td><td>Observed</td><td>4d5c…</td></tr></tbody></table></section>
+
+        <section class="control" aria-labelledby="control-title"><div><div class="label">Next discriminating test</div><h2 id="control-title">ControlFirst</h2></div><div class="experiment">Repeat the temperature sweep in a four-wire configuration with the same sample, current, temperature range, and mounting.</div><div><div class="outcome"><span class="dot"></span><span>If the transition remains comparable, the bulk-transition interpretation gains support.</span></div><div class="outcome"><span class="dot"></span><span>If it weakens or disappears, contact or lead resistance is a plausible explanation.</span></div></div></section>
+      </main>
+    </div>
+  </body>
+</html>
