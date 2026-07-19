@@ -32,7 +32,9 @@ def parse_dataset(raw: bytes, artifact_id="data-001") -> tuple[DatasetAnalysis, 
         elif current != direction:
             segments.append(f"rows {start}-{i+1}: {direction}"); start=i+1; direction=current
     segments.append(f"rows {start}-{len(vals)+1}: {direction}")
-    analysis=DatasetAnalysis(columns=list(REQUIRED), row_count=len(rows), temperature_range_c=(min(temps),max(temps)), resistance_min_ohm=mn, resistance_min_row=vals.index(mn)+2, resistance_max_ohm=mx, resistance_max_row=vals.index(mx)+2, first_resistance_ohm=vals[0], last_resistance_ohm=vals[-1], change_ohm=vals[-1]-vals[0], percent_change=(vals[-1]-vals[0])/vals[0]*100 if vals[0] else float("inf"), monotonicity_segments=segments, cited_row_range=(2,len(rows)+1), rows=rows)
+    if vals[0] == 0:
+        raise ValueError("CSV baseline resistance cannot be zero")
+    analysis=DatasetAnalysis(columns=list(REQUIRED), row_count=len(rows), temperature_range_c=(min(temps),max(temps)), resistance_min_ohm=mn, resistance_min_row=vals.index(mn)+2, resistance_max_ohm=mx, resistance_max_row=vals.index(mx)+2, first_resistance_ohm=vals[0], last_resistance_ohm=vals[-1], change_ohm=vals[-1]-vals[0], percent_change=(vals[-1]-vals[0])/vals[0]*100, monotonicity_segments=segments, cited_row_range=(2,len(rows)+1), rows=rows)
     ref=EvidenceRef(id=f"{artifact_id}:rows-2-{len(rows)+1}",kind="data",artifact_id=artifact_id,locator=Locator(columns=list(REQUIRED),row_start=2,row_end=len(rows)+1),excerpt=f"CSV rows 2–{len(rows)+1}; {len(rows)} validated numeric rows.",sha256=sha256_bytes(raw))
     return analysis, ref
 
@@ -42,4 +44,3 @@ def source_refs(sources: list[SourceInput]) -> list[EvidenceRef]:
         serialized=source.model_dump_json().encode()
         refs.append(EvidenceRef(id=f"{source.id}:evidence",kind="source",artifact_id=source.id,locator=source.locator,excerpt=source.untrusted_content[:1000],sha256=sha256_bytes(serialized)))
     return refs
-

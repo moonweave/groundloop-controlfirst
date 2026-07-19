@@ -1,0 +1,20 @@
+[
+  {
+    "id": "src-four-wire-principle",
+    "title": "Four-terminal sensing principle",
+    "authors": ["GroundLoop demonstration fixture"],
+    "year": 2026,
+    "url_or_doi": "https://groundloop.local/fixture/four-wire-principle",
+    "locator": {"section": "Measurement principle"},
+    "untrusted_content": "Four-terminal measurements separate current delivery from voltage sensing, reducing the contribution of lead and contact resistance to the measured voltage drop. This demonstration source is intentionally supplied as untrusted input and must be inspected by the reasoning host."
+  },
+  {
+    "id": "src-contact-contribution",
+    "title": "Contact-resistance confound",
+    "authors": ["GroundLoop demonstration fixture"],
+    "year": 2026,
+    "url_or_doi": "https://groundloop.local/fixture/contact-contribution",
+    "locator": {"section": "Confound"},
+    "untrusted_content": "In a two-terminal resistance measurement, a temperature-dependent change can include contributions from leads and contacts. A matched four-terminal control can discriminate this confound under otherwise matched conditions."
+  }
+]
