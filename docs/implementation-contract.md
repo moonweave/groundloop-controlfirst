@@ -1,6 +1,8 @@
-# GroundLoop: ControlFirst — implementation contract
+# GroundLoop: ControlFirst — legacy implementation contract
 
-This document freezes the Build Week MVP so an implementation agent can build it without making product decisions. If this contract conflicts with a future product idea, the contract wins until the demo is submitted.
+> The current product contract is [docs/convergence-map-contract.md](./convergence-map-contract.md). This document describes the original four-finding Build Week path, which remains supported for backwards compatibility and fixture replay. New UI and MCP work must follow the Convergence Map contract.
+
+This document is retained so existing local Runs and the legacy MCP sequence remain readable. It is not the source of truth for the current Convergence Map UI or the new signature/alignment MCP contracts.
 
 ## 1. Scope freeze
 

@@ -46,13 +46,14 @@ class SourceAdjudication(StrictModel):
     source_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
     verdict: Literal["direct", "contextual", "reject"]
     rationale: str = Field(min_length=1, max_length=500)
+    role: Literal["theory_basis", "method_limit", "discriminating_control"] | None = None
 
 
 class SourceReview(StrictModel):
     """The semantic source-selection record that defines a retrieved packet."""
 
     provider: str = Field(min_length=1, max_length=120)
-    adjudications: list[SourceAdjudication] = Field(min_length=1, max_length=3)
+    adjudications: list[SourceAdjudication] = Field(min_length=1, max_length=20)
     adjudicated_at: str = Field(min_length=1, max_length=80)
 
 
@@ -91,6 +92,31 @@ class Finding(StrictModel):
     uncertainty: str | None = Field(default=None, max_length=500)
     alternative_explanation: str | None = Field(default=None, max_length=500)
 
+
+class RequiredSignature(StrictModel):
+    """A falsifiable condition the mechanism claim must explain."""
+
+    id: str = Field(pattern=r"^signature-[a-zA-Z0-9_-]+$")
+    name: str = Field(min_length=1, max_length=80)
+    requirement: str = Field(min_length=1, max_length=500)
+    expected_observation: str = Field(min_length=1, max_length=500)
+    falsifying_outcome: str = Field(min_length=1, max_length=500)
+    theory_evidence_ref_ids: list[str] = Field(default_factory=list, max_length=10)
+
+
+class AlignmentAdjudication(StrictModel):
+    """The relationship between one required signature and the measurement."""
+
+    signature_id: str = Field(pattern=r"^signature-[a-zA-Z0-9_-]+$")
+    status: Literal["Observed", "Confounded", "Missing", "Contradicted"]
+    rationale: str = Field(min_length=1, max_length=1200)
+    evidence_ref_ids: list[str] = Field(default_factory=list, max_length=20)
+    alternative_explanation: str | None = Field(default=None, max_length=500)
+    missing_reason: Literal[
+        "not_measured", "not_specified_by_theory", "outside_method_capability", "data_quality_insufficient"
+    ] | None = None
+
+
 class Outcome(StrictModel):
     if_: str = Field(alias="if", min_length=1, max_length=400)
     then: str = Field(min_length=1, max_length=500)
@@ -101,9 +127,25 @@ class ControlProposal(StrictModel):
     experiment: str = Field(min_length=1, max_length=1000)
     preconditions: list[str] = Field(min_length=1, max_length=10)
     outcomes: Annotated[list[Outcome], Field(min_length=2, max_length=2)]
-    finding_ref_ids: list[str] = Field(min_length=1)
+    finding_ref_ids: list[str] = Field(default_factory=list, max_length=20)
+    signature_ref_ids: list[str] = Field(default_factory=list, max_length=10)
     priority: Literal["high", "medium", "low"]
     feasibility: str = Field(min_length=1, max_length=300)
+    closes_signature_ids: list[str] = Field(default_factory=list, max_length=10)
+    leaves_open_signature_ids: list[str] = Field(default_factory=list, max_length=10)
+
+
+class ConvergenceMap(StrictModel):
+    """Persisted, reviewable claim-to-measurement alignment artifact."""
+
+    claim: str = Field(min_length=1, max_length=1000)
+    measurement_method: str = Field(min_length=1, max_length=20_000)
+    signatures: list[RequiredSignature] = Field(min_length=2, max_length=5)
+    alignments: list[AlignmentAdjudication] = Field(min_length=2, max_length=5)
+    dominant_gap: str = Field(min_length=1, max_length=500)
+    control: ControlProposal | None = None
+    freeze_status: Literal["DRAFT", "FROZEN"] = "DRAFT"
+    recorded_at: str
 
 
 class MechanismVerdict(StrictModel):
@@ -165,8 +207,8 @@ class Report(StrictModel):
     run_id: str
     claim: str
     state: RunState
-    findings: list[Finding]
-    control: ControlProposal
+    findings: list[Finding] = Field(default_factory=list)
+    control: ControlProposal | None = None
     sources: list[SourceInput]
     source_relevance: list[SourceRelevance] = Field(default_factory=list)
     source_review: SourceReview | None = None
@@ -174,6 +216,7 @@ class Report(StrictModel):
     dataset_provenance: Literal["USER_MEASUREMENT", "LABELLED_DEMO", "FIXTURE_DEMO"] = "USER_MEASUREMENT"
     verdict: MechanismVerdict
     exported_at: str
+    convergence: ConvergenceMap | None = None
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()

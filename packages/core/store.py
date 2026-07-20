@@ -7,12 +7,19 @@ from pathlib import Path
 from typing import Any
 
 from .analysis import parse_dataset, screen_source_relevance, source_refs
+from .convergence import legacy_projection, preview_map, validate_alignment_records
 from .models import (
     AuditEvent,
+    AlignmentAdjudication,
     ClaimInput,
+    ConvergenceMap,
     ControlProposal,
+    DatasetAnalysis,
+    EvidenceRef,
     Finding,
+    MechanismVerdict,
     Report,
+    RequiredSignature,
     RunState,
     RunSummary,
     SourceAdjudication,
@@ -66,6 +73,23 @@ class RunStore:
         )
         return summary
 
+    def create_codex_run(
+        self,
+        claim: ClaimInput,
+        methods: str,
+        dataset: bytes,
+        sources: list[SourceInput] | None = None,
+    ) -> dict[str, Any]:
+        """Create a complete draft from Codex without requiring the web UI."""
+
+        summary = self.create_run()
+        self.update_claim(summary.run_id, claim)
+        self.update_methods(summary.run_id, methods)
+        self.update_dataset(summary.run_id, dataset)
+        if sources:
+            self.update_sources(summary.run_id, sources)
+        return self.get_detail(summary.run_id)
+
     def list_runs(self) -> list[RunSummary]:
         result: list[RunSummary] = []
         for manifest in self.root.glob("*/manifest.json"):
@@ -109,6 +133,23 @@ class RunStore:
         inspect the product outcome before choosing the manual integration path.
         """
         summary = self.create_fixture_run(fixture_root)
+        self.record_source_reviews(
+            summary.run_id,
+            [
+                SourceAdjudication(
+                    source_id="src-four-wire-principle",
+                    verdict="direct",
+                    role="theory_basis",
+                    rationale="The supplied excerpt states the four-terminal measurement principle used to isolate the sensed voltage.",
+                ),
+                SourceAdjudication(
+                    source_id="src-contact-contribution",
+                    verdict="direct",
+                    role="method_limit",
+                    rationale="The supplied excerpt states why two-wire resistance can include measurement error and why four-wire sensing is the control.",
+                ),
+            ],
+        )
         self.prepare_packet(summary.run_id)
         self.inspect_sources(
             summary.run_id,
@@ -256,7 +297,7 @@ class RunStore:
             run / "analysis" / "source-adjudication.json",
             {
                 "provider": _retrieval_provider_label(candidates),
-                "adjudications": [item.model_dump(mode="json") for item in adjudications],
+                "adjudications": [item.model_dump(mode="json", exclude_none=True) for item in adjudications],
                 "direct_source_ids": [source.id for source in selected_sources],
                 "adjudicated_at": now_iso(),
             },
@@ -281,6 +322,45 @@ class RunStore:
         if not methods_path.is_file() or len(methods_path.read_text(encoding="utf-8").strip()) < 20:
             methods_path.write_text(methods, encoding="utf-8")
         return self.get_summary(run_id)
+
+    def record_source_reviews(
+        self, run_id: str, adjudications: list[SourceAdjudication]
+    ) -> dict[str, Any]:
+        """Record role-aware semantic source review for UI- or Codex-created runs."""
+
+        run = self._require_draft(run_id)
+        candidates_path = run / "inputs" / "retrieval-candidates.json"
+        source_path = candidates_path if candidates_path.is_file() else run / "inputs" / "sources.json"
+        if not source_path.is_file():
+            raise ValueError("source review requires supplied source candidates")
+        candidates = [SourceInput.model_validate(item) for item in self._read(source_path)]
+        candidate_ids = {source.id for source in candidates}
+        review_ids = [item.source_id for item in adjudications]
+        if len(review_ids) != len(set(review_ids)) or set(review_ids) != candidate_ids:
+            raise ValueError("source review must classify every supplied source exactly once")
+        if any(item.verdict == "direct" and item.role is None for item in adjudications):
+            raise ValueError("every direct source must receive one explicit evidence role")
+        direct = [item.source_id for item in adjudications if item.verdict == "direct"]
+        if not direct:
+            raise ValueError("at least one supplied source must be reviewed direct before freezing")
+        selected = [source for source in candidates if source.id in direct]
+        self._write(
+            run / "analysis" / "source-adjudication.json",
+            {
+                "provider": _retrieval_provider_label(candidates),
+                "adjudications": [item.model_dump(mode="json", exclude_none=True) for item in adjudications],
+                "direct_source_ids": [source.id for source in selected],
+                "adjudicated_at": now_iso(),
+            },
+        )
+        self._write(run / "inputs" / "sources.json", [source.model_dump(mode="json") for source in selected])
+        self._record_event(
+            run,
+            action="source_roles_reviewed",
+            state=RunState.DRAFT,
+            summary=f"Semantic review assigned roles to {len(adjudications)} source candidate(s); {len(selected)} direct source(s) remain eligible.",
+        )
+        return self._draft(run)
 
     def update_dataset(self, run_id: str, dataset: bytes) -> dict[str, Any]:
         run = self._require_draft(run_id)
@@ -392,6 +472,89 @@ class RunStore:
             summary="Codex saved deterministic analysis of the frozen dataset.",
         ).model_dump(mode="json")
 
+    def record_signatures(
+        self, run_id: str, signatures: list[RequiredSignature]
+    ) -> dict[str, Any]:
+        """Persist Codex's claim decomposition without changing the frozen packet."""
+
+        run = self._require_state(run_id, RunState.DATA_ANALYZED)
+        packet = self._packet(run)
+        refs = [EvidenceRef.model_validate(item) for item in packet["evidence_refs"]]
+        ref_ids = {ref.id for ref in refs}
+        if not 2 <= len(signatures) <= 5:
+            raise ValueError("Codex must record between 2 and 5 required signatures")
+        ids = [signature.id for signature in signatures]
+        if len(ids) != len(set(ids)):
+            raise ValueError("required signatures must have unique ids")
+        if any(ref_id not in ref_ids for signature in signatures for ref_id in signature.theory_evidence_ref_ids):
+            raise ValueError("required signatures reference unsupported evidence")
+        self._write(
+            run / "analysis" / "signatures.json",
+            {"signatures": [item.model_dump(mode="json") for item in signatures], "recorded_at": now_iso()},
+        )
+        self._record_event(
+            run,
+            action="signatures_recorded",
+            state=RunState.DATA_ANALYZED,
+            summary=f"Codex decomposed the claim into {len(signatures)} required signatures.",
+        )
+        return self.get_convergence_map(run_id).model_dump(mode="json", by_alias=True)
+
+    def record_alignments(
+        self, run_id: str, alignments: list[AlignmentAdjudication]
+    ) -> dict[str, Any]:
+        """Persist one adjudication for every required signature."""
+
+        run = self._require_state(run_id, RunState.DATA_ANALYZED)
+        signatures_path = run / "analysis" / "signatures.json"
+        if not signatures_path.is_file():
+            raise ValueError("record required signatures before alignment adjudications")
+        signatures = [RequiredSignature.model_validate(item) for item in self._read(signatures_path)["signatures"]]
+        packet = self._packet(run)
+        refs = [EvidenceRef.model_validate(item) for item in packet["evidence_refs"]]
+        checked = validate_alignment_records(signatures, alignments, refs)
+        self._write(
+            run / "analysis" / "alignments.json",
+            {"alignments": [item.model_dump(mode="json") for item in checked], "recorded_at": now_iso()},
+        )
+        self._record_event(
+            run,
+            action="alignment_adjudicated",
+            state=RunState.DATA_ANALYZED,
+            summary="Codex recorded the claim-to-measurement alignment for every required signature.",
+        )
+        return self.get_convergence_map(run_id).model_dump(mode="json", by_alias=True)
+
+    def record_control_contract(
+        self, run_id: str, control: ControlProposal
+    ) -> dict[str, Any]:
+        """Persist a single control contract against signature IDs."""
+
+        run = self._require_state(run_id, RunState.DATA_ANALYZED)
+        signatures_path = run / "analysis" / "signatures.json"
+        alignments_path = run / "analysis" / "alignments.json"
+        if not signatures_path.is_file() or not alignments_path.is_file():
+            raise ValueError("record signatures and alignments before the control contract")
+        signatures = [RequiredSignature.model_validate(item) for item in self._read(signatures_path)["signatures"]]
+        signature_ids = {signature.id for signature in signatures}
+        target_ids = [*control.closes_signature_ids, *control.leaves_open_signature_ids, *control.signature_ref_ids]
+        if not control.closes_signature_ids:
+            raise ValueError("control must name at least one signature it closes")
+        if any(signature_id not in signature_ids for signature_id in target_ids):
+            raise ValueError("control references an unsupported signature")
+        if len(control.outcomes) != 2:
+            raise ValueError("control requires exactly two outcomes")
+        if any(word in (control.experiment + control.confound).lower() for word in ("email", "publish", "execute shell", "curl", "http://")):
+            raise ValueError("Control contains an external action")
+        self._write(run / "report" / "control.json", {"control": control.model_dump(mode="json", by_alias=True), "validated_at": now_iso()})
+        self._transition(
+            run_id,
+            RunState.CONTROL_VALIDATED,
+            action="convergence_control_validated",
+            summary="GroundLoop committed one signature-targeted discriminating control.",
+        )
+        return self.get_convergence_map(run_id).model_dump(mode="json", by_alias=True)
+
     def reconcile_findings(self, run_id: str, findings: list[Finding]) -> dict[str, Any]:
         run = self._require_state(run_id, RunState.DATA_ANALYZED)
         packet = self._packet(run)
@@ -424,10 +587,40 @@ class RunStore:
     def export_report(self, run_id: str) -> Report:
         run = self._require_state(run_id, RunState.CONTROL_VALIDATED)
         packet = self._packet(run)
-        findings = [Finding.model_validate(item) for item in self._read(run / "report" / "findings.json")["findings"]]
         control = ControlProposal.model_validate(self._read(run / "report" / "control.json")["control"])
         from .models import DatasetAnalysis
 
+        convergence: ConvergenceMap | None = None
+        findings: list[Finding] = []
+        if (run / "analysis" / "signatures.json").is_file():
+            convergence = self.get_convergence_map(run_id).model_copy(update={"freeze_status": "FROZEN", "control": control})
+            blockers = [item.signature_id for item in convergence.alignments if item.status != "Observed"]
+            while len(blockers) < 2:
+                blockers.append("signature-specificity")
+            verdict = MechanismVerdict(
+                label="MECHANISM_NOT_ESTABLISHED",
+                reason=convergence.dominant_gap,
+                blocking_finding_ids=blockers[:20],
+            )
+        else:
+            findings = [Finding.model_validate(item) for item in self._read(run / "report" / "findings.json")["findings"]]
+            verdict = mechanism_not_established_verdict(findings)
+            convergence = legacy_projection(
+                Report(
+                    run_id=run_id,
+                    claim=packet["claim"]["claim"],
+                    state=RunState.EXPORTED,
+                    findings=findings,
+                    control=control,
+                    sources=[SourceInput.model_validate(item) for item in packet["sources"]],
+                    source_relevance=[],
+                    source_review=SourceReview.model_validate(packet["source_review"]) if packet.get("source_review") else None,
+                    dataset=DatasetAnalysis.model_validate(packet["dataset"]),
+                    dataset_provenance=packet.get("dataset_provenance", "USER_MEASUREMENT"),
+                    verdict=verdict,
+                    exported_at=now_iso(),
+                )
+            )
         report = Report(
             run_id=run_id,
             claim=packet["claim"]["claim"],
@@ -440,8 +633,9 @@ class RunStore:
             source_review=SourceReview.model_validate(packet["source_review"]) if packet.get("source_review") else None,
             dataset=DatasetAnalysis.model_validate(packet["dataset"]),
             dataset_provenance=packet.get("dataset_provenance", "USER_MEASUREMENT"),
-            verdict=mechanism_not_established_verdict(findings),
+            verdict=verdict,
             exported_at=now_iso(),
+            convergence=convergence,
         )
         self._write(
             run / "report" / "report.json",
@@ -466,7 +660,71 @@ class RunStore:
             payload["verdict"] = mechanism_not_established_verdict(findings).model_dump(mode="json")
         payload.setdefault("source_relevance", [])
         payload.setdefault("dataset_provenance", self._dataset_provenance(self._run_dir(run_id)))
-        return Report.model_validate(payload)
+        report = Report.model_validate(payload)
+        if report.convergence is None:
+            report = report.model_copy(update={"convergence": legacy_projection(report)})
+        return report
+
+    def get_convergence_map(self, run_id: str) -> ConvergenceMap:
+        """Return the persisted map, a legacy projection, or an explicit draft preview."""
+
+        run = self._run_dir(run_id)
+        report_path = run / "report" / "report.json"
+        if report_path.is_file() and self.get_summary(run_id).state == RunState.EXPORTED:
+            report = self.get_report(run_id)
+            if report.convergence is None:
+                raise ValueError("report convergence map is unavailable")
+            return report.convergence
+
+        packet_path = run / "analysis" / "evidence-packet.json"
+        if packet_path.is_file():
+            packet = self._read(packet_path)
+            claim = packet["claim"]["claim"]
+            method = packet["methods"]
+            dataset = DatasetAnalysis.model_validate(packet["dataset"])
+            refs = [EvidenceRef.model_validate(item) for item in packet["evidence_refs"]]
+            data_ref = next(item.id for item in refs if item.kind == "data")
+            source_ref_ids = [item.id for item in refs if item.kind == "source"]
+            cmap = preview_map(claim, method, dataset, data_ref, source_ref_ids)
+            signatures_path = run / "analysis" / "signatures.json"
+            alignments_path = run / "analysis" / "alignments.json"
+            if signatures_path.is_file():
+                signatures = [RequiredSignature.model_validate(item) for item in self._read(signatures_path)["signatures"]]
+                cmap = cmap.model_copy(update={"signatures": signatures})
+                if not alignments_path.is_file():
+                    cmap = cmap.model_copy(
+                        update={
+                            "alignments": [
+                                AlignmentAdjudication(
+                                    signature_id=signature.id,
+                                    status="Missing",
+                                    rationale="Alignment is awaiting Codex adjudication.",
+                                    missing_reason="not_specified_by_theory",
+                                )
+                                for signature in signatures
+                            ]
+                        }
+                    )
+            if alignments_path.is_file():
+                cmap = cmap.model_copy(
+                    update={"alignments": [AlignmentAdjudication.model_validate(item) for item in self._read(alignments_path)["alignments"]]}
+                )
+            control_path = run / "report" / "control.json"
+            if control_path.is_file():
+                cmap = cmap.model_copy(update={"control": ControlProposal.model_validate(self._read(control_path)["control"])})
+            if self.get_summary(run_id).state != RunState.DRAFT:
+                cmap = cmap.model_copy(update={"freeze_status": "FROZEN"})
+            return cmap
+
+        draft = self._draft(run)
+        claim = draft.get("claim")
+        dataset_path = run / "inputs" / "dataset.csv"
+        if not claim or not draft.get("methods") or not dataset_path.is_file():
+            raise ValueError("claim, method, and dataset are required for a convergence preview")
+        dataset, data_ref = parse_dataset(dataset_path.read_bytes())
+        sources = [SourceInput.model_validate(item) for item in draft.get("sources", [])]
+        source_refs_for_preview = [item.id for item in source_refs(sources)]
+        return preview_map(claim["claim"], draft["methods"], dataset, data_ref.id, source_refs_for_preview)
 
     def get_packet(self, run_id: str) -> dict[str, Any]:
         return self._packet(self._run_dir(run_id))
@@ -484,6 +742,10 @@ class RunStore:
             result["draft"] = self._draft(run)
         else:
             result["packet"] = self._packet(run)
+        try:
+            result["convergence"] = self.get_convergence_map(run_id).model_dump(mode="json", by_alias=True)
+        except ValueError:
+            pass
         if summary.state == RunState.EXPORTED:
             result["report"] = self.get_report(run_id).model_dump(
                 mode="json", by_alias=True
@@ -512,8 +774,14 @@ class RunStore:
             "source_relevance": relevance,
             "methods": methods,
             "dataset_ready": (run / "inputs" / "dataset.csv").is_file(),
+            "dataset": None,
             "dataset_provenance": self._dataset_provenance(run),
         }
+        dataset_path = run / "inputs" / "dataset.csv"
+        if dataset_path.is_file():
+            dataset, data_ref = parse_dataset(dataset_path.read_bytes())
+            result["dataset"] = dataset.model_dump(mode="json")
+            result["dataset_evidence_ref"] = data_ref.model_dump(mode="json")
         if candidates is not None:
             review_path = run / "analysis" / "source-adjudication.json"
             review = self._read(review_path) if review_path.is_file() else None
@@ -673,7 +941,7 @@ class RunStore:
             provider=raw["provider"],
             adjudications=adjudications,
             adjudicated_at=raw["adjudicated_at"],
-        ).model_dump(mode="json")
+        ).model_dump(mode="json", exclude_none=True)
 
     def _timeline(self, run: Path) -> list[dict[str, Any]]:
         path = run / "analysis" / "audit-timeline.json"

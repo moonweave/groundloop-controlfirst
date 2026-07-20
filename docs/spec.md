@@ -1,4 +1,6 @@
-# GroundLoop: ControlFirst — MVP specification
+# GroundLoop: ControlFirst — legacy MVP specification
+
+> Current implementation: [Convergence Map contract](./convergence-map-contract.md). The four-finding taxonomy below remains a compatibility layer for existing fixture Runs; new product behavior uses Required Signatures and Observed / Confounded / Missing / Contradicted alignments.
 
 ## Product statement
 

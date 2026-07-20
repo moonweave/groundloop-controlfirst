@@ -11,7 +11,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from packages.core.analysis import parse_hioki_sm7120_transient
 from packages.core.discovery import DualIndexReferenceDiscovery, ReferenceDiscovery, ReferenceDiscoveryError
-from packages.core.models import ClaimInput, SourceInput
+from packages.core.models import (
+    AlignmentAdjudication,
+    ClaimInput,
+    ControlProposal,
+    RequiredSignature,
+    SourceAdjudication,
+    SourceInput,
+)
 from packages.core.store import RunStore
 
 
@@ -24,6 +31,17 @@ class CreateRunRequest(StrictRequest):
         default=None,
         pattern=r"^four_wire_contact_control(?:_guided)?$",
     )
+    claim: str | None = Field(default=None, min_length=1, max_length=1000)
+    methods: str | None = Field(default=None, min_length=20, max_length=20_000)
+    dataset_csv: str | None = Field(default=None, min_length=1, max_length=5 * 1024 * 1024)
+    sources: list[SourceInput] | None = Field(default=None, max_length=20)
+
+
+class UpdateRunRequest(StrictRequest):
+    claim: str | None = Field(default=None, min_length=1, max_length=1000)
+    methods: str | None = Field(default=None, min_length=20, max_length=20_000)
+    dataset_csv: str | None = Field(default=None, min_length=1, max_length=5 * 1024 * 1024)
+    sources: list[SourceInput] | None = Field(default=None, max_length=20)
 
 
 class SourcesRequest(StrictRequest):
@@ -36,6 +54,22 @@ class MethodsRequest(StrictRequest):
 
 class GatherReferencesRequest(StrictRequest):
     research_question: str = Field(min_length=10, max_length=1000)
+
+
+class SourceReviewsRequest(StrictRequest):
+    adjudications: list[SourceAdjudication] = Field(min_length=1, max_length=20)
+
+
+class SignaturesRequest(StrictRequest):
+    signatures: list[RequiredSignature] = Field(min_length=2, max_length=5)
+
+
+class AlignmentsRequest(StrictRequest):
+    alignments: list[AlignmentAdjudication] = Field(min_length=2, max_length=5)
+
+
+class ControlContractRequest(StrictRequest):
+    control: ControlProposal
 
 
 def _repo_root() -> Path:
@@ -72,7 +106,7 @@ def create_app(store: RunStore | None = None, discovery: ReferenceDiscovery | No
         CORSMiddleware,
         allow_origins=[os.environ.get("GROUNDLOOP_WEB_ORIGIN", "http://127.0.0.1:5173")],
         allow_credentials=False,
-        allow_methods=["GET", "POST", "PUT"],
+        allow_methods=["GET", "POST", "PUT", "PATCH"],
         allow_headers=["Content-Type"],
     )
 
@@ -92,6 +126,15 @@ def create_app(store: RunStore | None = None, discovery: ReferenceDiscovery | No
                 if request.fixture_name == "four_wire_contact_control_guided":
                     return app.state.store.create_guided_demo_run(fixture).model_dump(mode="json")
                 return app.state.store.create_fixture_run(fixture).model_dump(mode="json")
+            if request.claim or request.methods or request.dataset_csv:
+                if not request.claim or not request.methods or not request.dataset_csv:
+                    raise ValueError("Codex-created runs require claim, methods, and dataset_csv together")
+                return app.state.store.create_codex_run(
+                    ClaimInput(claim=request.claim),
+                    request.methods,
+                    request.dataset_csv.encode("utf-8"),
+                    request.sources,
+                )
             return app.state.store.create_run().model_dump(mode="json")
         except Exception as exc:
             raise _error(exc) from exc
@@ -107,6 +150,21 @@ def create_app(store: RunStore | None = None, discovery: ReferenceDiscovery | No
     def update_claim(run_id: str, request: ClaimInput) -> dict[str, Any]:
         try:
             return app.state.store.update_claim(run_id, request).model_dump(mode="json")
+        except Exception as exc:
+            raise _error(exc) from exc
+
+    @app.patch("/api/runs/{run_id}")
+    def update_run(run_id: str, request: UpdateRunRequest) -> dict[str, Any]:
+        try:
+            if request.claim is not None:
+                app.state.store.update_claim(run_id, ClaimInput(claim=request.claim))
+            if request.methods is not None:
+                app.state.store.update_methods(run_id, request.methods)
+            if request.dataset_csv is not None:
+                app.state.store.update_dataset(run_id, request.dataset_csv.encode("utf-8"))
+            if request.sources is not None:
+                app.state.store.update_sources(run_id, request.sources)
+            return app.state.store.get_detail(run_id)
         except Exception as exc:
             raise _error(exc) from exc
 
@@ -173,6 +231,50 @@ def create_app(store: RunStore | None = None, discovery: ReferenceDiscovery | No
         try:
             app.state.store.prepare_packet(run_id)
             return app.state.store.get_detail(run_id)
+        except Exception as exc:
+            raise _error(exc) from exc
+
+    @app.post("/api/runs/{run_id}/freeze")
+    def freeze(run_id: str) -> dict[str, Any]:
+        try:
+            app.state.store.prepare_packet(run_id)
+            return app.state.store.get_detail(run_id)
+        except Exception as exc:
+            raise _error(exc) from exc
+
+    @app.post("/api/runs/{run_id}/source-reviews")
+    def record_source_reviews(run_id: str, request: SourceReviewsRequest) -> dict[str, Any]:
+        try:
+            app.state.store.record_source_reviews(run_id, request.adjudications)
+            return app.state.store.get_detail(run_id)
+        except Exception as exc:
+            raise _error(exc) from exc
+
+    @app.post("/api/runs/{run_id}/signatures")
+    def record_signatures(run_id: str, request: SignaturesRequest) -> dict[str, Any]:
+        try:
+            return app.state.store.record_signatures(run_id, request.signatures)
+        except Exception as exc:
+            raise _error(exc) from exc
+
+    @app.post("/api/runs/{run_id}/alignments")
+    def record_alignments(run_id: str, request: AlignmentsRequest) -> dict[str, Any]:
+        try:
+            return app.state.store.record_alignments(run_id, request.alignments)
+        except Exception as exc:
+            raise _error(exc) from exc
+
+    @app.post("/api/runs/{run_id}/control-contract")
+    def record_control_contract(run_id: str, request: ControlContractRequest) -> dict[str, Any]:
+        try:
+            return app.state.store.record_control_contract(run_id, request.control)
+        except Exception as exc:
+            raise _error(exc) from exc
+
+    @app.get("/api/runs/{run_id}/convergence")
+    def convergence(run_id: str) -> dict[str, Any]:
+        try:
+            return app.state.store.get_convergence_map(run_id).model_dump(mode="json", by_alias=True)
         except Exception as exc:
             raise _error(exc) from exc
 
