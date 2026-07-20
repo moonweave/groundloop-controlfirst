@@ -1,6 +1,17 @@
 from __future__ import annotations
 import csv, hashlib, io, math, re
-from .models import ClaimInput, DatasetAnalysis, EvidenceRef, Locator, SourceInput, SourceRelevance
+from datetime import datetime
+from statistics import median
+
+from .models import (
+    ClaimInput,
+    DatasetAnalysis,
+    EvidenceRef,
+    Locator,
+    SourceInput,
+    SourceRelevance,
+    TransientAnalysis,
+)
 
 MAX_BYTES, MAX_ROWS = 5 * 1024 * 1024, 10_000
 REQUIRED = ("temperature_c", "two_wire_resistance_ohm")
@@ -42,6 +53,124 @@ def parse_dataset(raw: bytes, artifact_id="data-001") -> tuple[DatasetAnalysis, 
     ref=EvidenceRef(id=f"{artifact_id}:rows-2-{len(rows)+1}",kind="data",artifact_id=artifact_id,locator=Locator(columns=list(REQUIRED),row_start=2,row_end=len(rows)+1),excerpt=f"CSV rows 2–{len(rows)+1}; {len(rows)} validated numeric rows.",sha256=sha256_bytes(raw))
     return analysis, ref
 
+
+def parse_hioki_sm7120_transient(
+    raw: bytes,
+    artifact_id: str = "data-001",
+    fit_window_s: tuple[float, float] = (10.0, 100.0),
+) -> tuple[TransientAnalysis, EvidenceRef]:
+    """Inspect one Hioki SM7120 resistance-mode transient without inferring a mechanism.
+
+    The instrument exports a metadata preamble followed by a fixed table. Current is
+    derived only as V/R and the exponent is a transparent ordinary-least-squares
+    log-log diagnostic. It is intentionally not a replacement for an experiment's
+    separately specified robust fitting pipeline.
+    """
+    if len(raw) > MAX_BYTES:
+        raise ValueError("CSV exceeds the 5 MiB input limit")
+    try:
+        lines = raw.decode("utf-8-sig").splitlines()
+    except UnicodeDecodeError as exc:
+        raise ValueError("CSV must be UTF-8") from exc
+
+    header_index = next(
+        (index for index, line in enumerate(lines) if line.startswith("DATE,TIME,")),
+        None,
+    )
+    if header_index is None:
+        raise ValueError("CSV is not a recognised Hioki SM7120 resistance export")
+    try:
+        reader = csv.DictReader(io.StringIO("\n".join(lines[header_index:])))
+        required = ("DATE", "TIME", "Voltage[V]", "Measurement value[ohm]")
+        if not reader.fieldnames or any(name not in reader.fieldnames for name in required):
+            raise ValueError("CSV is missing required Hioki transient columns")
+        records: list[tuple[datetime, float, float, int]] = []
+        for source_row, record in enumerate(reader, start=header_index + 2):
+            if len(records) >= MAX_ROWS:
+                raise ValueError("CSV exceeds the 10,000 row limit")
+            try:
+                timestamp = datetime.fromisoformat(f"{record['DATE'].strip()}T{record['TIME'].strip()}")
+                voltage = float(record["Voltage[V]"].strip())
+                resistance = float(record["Measurement value[ohm]"].strip())
+            except (AttributeError, TypeError, ValueError) as exc:
+                raise ValueError(f"CSV row {source_row} contains an invalid Hioki transient value") from exc
+            if not math.isfinite(voltage) or not math.isfinite(resistance) or resistance <= 0:
+                raise ValueError(f"CSV row {source_row} must contain finite voltage and positive finite resistance")
+            records.append((timestamp, voltage, resistance, source_row))
+    except csv.Error as exc:
+        raise ValueError("Malformed CSV") from exc
+
+    if len(records) < 3:
+        raise ValueError("Hioki transient CSV must contain at least three data rows")
+    offsets = [(item[0] - records[0][0]).total_seconds() for item in records]
+    if any(later <= earlier for earlier, later in zip(offsets, offsets[1:])):
+        raise ValueError("Hioki transient timestamps must be strictly increasing")
+    interval_s = median(later - earlier for earlier, later in zip(offsets, offsets[1:]))
+    if not math.isfinite(interval_s) or interval_s <= 0:
+        raise ValueError("Hioki transient sampling interval must be positive")
+    rows = [
+        (offset + interval_s, voltage, voltage / resistance, source_row)
+        for offset, (_, voltage, resistance, source_row) in zip(offsets, records)
+    ]
+    start_s, end_s = fit_window_s
+    if start_s <= 0 or end_s <= start_s:
+        raise ValueError("fit window must be a positive increasing interval")
+    fit_rows = [row for row in rows if start_s <= row[0] <= end_s]
+    if len(fit_rows) < 3:
+        raise ValueError("Hioki transient does not contain three points in the requested fit window")
+    xs = [math.log(row[0]) for row in fit_rows]
+    ys = [math.log(row[2]) for row in fit_rows]
+    mean_x, mean_y = sum(xs) / len(xs), sum(ys) / len(ys)
+    denominator = sum((value - mean_x) ** 2 for value in xs)
+    if denominator == 0:
+        raise ValueError("Hioki transient fit window has no time variation")
+    slope = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys)) / denominator
+    intercept = mean_y - slope * mean_x
+    residual_sum = sum((y - (intercept + slope * x)) ** 2 for x, y in zip(xs, ys))
+    total_sum = sum((y - mean_y) ** 2 for y in ys)
+    r2 = 1.0 if total_sum == 0 and residual_sum == 0 else 0.0 if total_sum == 0 else 1 - residual_sum / total_sum
+
+    voltages = [row[1] for row in rows]
+    voltage_median = median(voltages)
+    warnings: list[str] = []
+    if rows[0][0] > start_s or rows[-1][0] < end_s:
+        warnings.append("FIT_WINDOW_INCOMPLETE")
+    if abs(max(voltages) - min(voltages)) > max(abs(voltage_median) * 0.01, 1e-12):
+        warnings.append("VOLTAGE_DRIFT")
+    if rows[-1][2] >= rows[0][2]:
+        warnings.append("NON_DECAYING_CURRENT")
+    if r2 < 0.95:
+        warnings.append("LOW_LOG_LOG_FIT")
+
+    analysis = TransientAnalysis(
+        artifact_id=artifact_id,
+        columns=["DATE", "TIME", "Voltage[V]", "Measurement value[ohm]"],
+        row_count=len(rows),
+        source_row_range=(records[0][3], records[-1][3]),
+        time_range_s=(rows[0][0], rows[-1][0]),
+        voltage_range_v=(min(voltages), max(voltages)),
+        first_current_a=rows[0][2],
+        last_current_a=rows[-1][2],
+        fit_window_s=fit_window_s,
+        fit_point_count=len(fit_rows),
+        fit_method="ols_log_log",
+        decay_exponent=-slope,
+        log_log_r2=r2,
+        warnings=warnings,
+    )
+    ref = EvidenceRef(
+        id=f"{artifact_id}:rows-{records[0][3]}-{records[-1][3]}",
+        kind="data",
+        artifact_id=artifact_id,
+        locator=Locator(columns=analysis.columns, row_start=records[0][3], row_end=records[-1][3]),
+        excerpt=(
+            f"Hioki SM7120 resistance export rows {records[0][3]}–{records[-1][3]}; "
+            f"{len(rows)} validated rows, V/R current conversion, OLS log-log diagnostic."
+        ),
+        sha256=sha256_bytes(raw),
+    )
+    return analysis, ref
+
 def source_refs(sources: list[SourceInput]) -> list[EvidenceRef]:
     refs=[]
     for source in sources:
@@ -61,7 +190,8 @@ def screen_source_relevance(claim: ClaimInput, sources: list[SourceInput]) -> li
     screens: list[SourceRelevance] = []
     for source in sources:
         source_terms = _meaningful_terms(f"{source.title} {source.untrusted_content}")
-        matched = sorted(claim_terms & source_terms)[:12]
+        source_stems = {_stem(term) for term in source_terms}
+        matched = sorted(term for term in claim_terms if _stem(term) in source_stems)[:12]
         verdict = "direct" if len(matched) >= 2 else "contextual" if matched else "limited"
         if matched:
             reason = f"Lexical overlap with the claim: {', '.join(matched)}. This does not establish source support."
@@ -76,3 +206,13 @@ def _meaningful_terms(text: str) -> set[str]:
         token for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]*", text.lower())
         if len(token) > 2 and token not in _STOP_WORDS
     }
+
+
+def _stem(term: str) -> str:
+    if term.endswith("ing") and len(term) > 5:
+        term = term[:-3]
+        if len(term) > 2 and term[-1] == term[-2]:
+            term = term[:-1]
+    if term.endswith("s") and len(term) > 4:
+        term = term[:-1]
+    return term

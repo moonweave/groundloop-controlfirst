@@ -9,7 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from packages.core.discovery import OpenAlexReferenceDiscovery, ReferenceDiscovery, ReferenceDiscoveryError
+from packages.core.analysis import parse_hioki_sm7120_transient
+from packages.core.discovery import DualIndexReferenceDiscovery, ReferenceDiscovery, ReferenceDiscoveryError
 from packages.core.models import ClaimInput, SourceInput
 from packages.core.store import RunStore
 
@@ -19,7 +20,10 @@ class StrictRequest(BaseModel):
 
 
 class CreateRunRequest(StrictRequest):
-    fixture_name: str | None = Field(default=None, pattern=r"^four_wire_contact_control$")
+    fixture_name: str | None = Field(
+        default=None,
+        pattern=r"^four_wire_contact_control(?:_guided)?$",
+    )
 
 
 class SourcesRequest(StrictRequest):
@@ -46,7 +50,15 @@ def _error(exc: Exception) -> HTTPException:
     if isinstance(exc, FileNotFoundError):
         return HTTPException(status_code=404, detail={"code": "RUN_NOT_FOUND", "message": "Run was not found.", "details": []})
     if isinstance(exc, ReferenceDiscoveryError):
-        return HTTPException(status_code=503, detail={"code": "REFERENCE_DISCOVERY_UNAVAILABLE", "message": str(exc), "details": []})
+        no_match = str(exc).startswith("No measurement-relevant") or str(exc).startswith("No indexed abstracts")
+        return HTTPException(
+            status_code=422 if no_match else 503,
+            detail={
+                "code": "NO_MEASUREMENT_RELEVANT_SOURCE" if no_match else "REFERENCE_DISCOVERY_UNAVAILABLE",
+                "message": str(exc),
+                "details": [],
+            },
+        )
     message = str(exc)
     code = "INVALID_STATE" if message.startswith("run must be") else "INPUT_LIMIT_EXCEEDED" if "limit" in message or "MiB" in message else "INVALID_INPUT"
     return HTTPException(status_code=422, detail={"code": code, "message": message, "details": []})
@@ -55,7 +67,7 @@ def _error(exc: Exception) -> HTTPException:
 def create_app(store: RunStore | None = None, discovery: ReferenceDiscovery | None = None) -> FastAPI:
     app = FastAPI(title="GroundLoop local API", docs_url=None, redoc_url=None)
     app.state.store = store or _store()
-    app.state.discovery = discovery or OpenAlexReferenceDiscovery()
+    app.state.discovery = discovery or DualIndexReferenceDiscovery()
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[os.environ.get("GROUNDLOOP_WEB_ORIGIN", "http://127.0.0.1:5173")],
@@ -76,7 +88,9 @@ def create_app(store: RunStore | None = None, discovery: ReferenceDiscovery | No
     def create_run(request: CreateRunRequest) -> dict[str, Any]:
         try:
             if request.fixture_name:
-                fixture = _repo_root() / "fixtures" / request.fixture_name
+                fixture = _repo_root() / "fixtures" / "four_wire_contact_control"
+                if request.fixture_name == "four_wire_contact_control_guided":
+                    return app.state.store.create_guided_demo_run(fixture).model_dump(mode="json")
                 return app.state.store.create_fixture_run(fixture).model_dump(mode="json")
             return app.state.store.create_run().model_dump(mode="json")
         except Exception as exc:
@@ -129,6 +143,22 @@ def create_app(store: RunStore | None = None, discovery: ReferenceDiscovery | No
         except Exception as exc:
             raise _error(exc) from exc
 
+    @app.post("/api/transient-audit")
+    async def audit_hioki_transient(file: UploadFile = File(...)) -> dict[str, Any]:
+        """Return a bounded SM7120 V/R diagnostic without persisting raw research data."""
+        try:
+            if file.content_type not in {"text/csv", "application/csv", "application/vnd.ms-excel", "application/octet-stream"}:
+                raise ValueError("dataset must be a CSV upload")
+            raw = await file.read(5 * 1024 * 1024 + 1)
+            analysis, evidence_ref = parse_hioki_sm7120_transient(raw, artifact_id="transient-001")
+            return {
+                "analysis": analysis.model_dump(mode="json"),
+                "evidence_ref": evidence_ref.model_dump(mode="json"),
+                "scope": "Single Hioki SM7120 resistance transient only; the reported exponent is an OLS diagnostic, not a mechanism conclusion or replacement for a separately configured robust fit.",
+            }
+        except Exception as exc:
+            raise _error(exc) from exc
+
     @app.post("/api/runs/{run_id}/demo-data")
     def load_demo_data(run_id: str) -> dict[str, Any]:
         try:
@@ -149,7 +179,9 @@ def create_app(store: RunStore | None = None, discovery: ReferenceDiscovery | No
     @app.get("/api/runs/{run_id}/report")
     def report(run_id: str) -> dict[str, Any]:
         try:
-            return app.state.store.get_report(run_id).model_dump(mode="json")
+            return app.state.store.get_report(run_id).model_dump(
+                mode="json", by_alias=True
+            )
         except Exception as exc:
             raise _error(exc) from exc
 

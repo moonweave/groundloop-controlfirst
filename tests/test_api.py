@@ -1,6 +1,9 @@
 from pathlib import Path
+from datetime import datetime, timedelta
+import math
 
 from fastapi.testclient import TestClient
+import pytest
 
 from packages.core.store import RunStore
 from services.local_api.main import create_app
@@ -38,6 +41,21 @@ def test_fixture_can_be_prepared_through_local_api(tmp_path: Path) -> None:
     assert body["packet"]["dataset"]["row_count"] == 8
 
 
+def test_guided_fixture_opens_an_exported_report_without_mcp(tmp_path: Path) -> None:
+    client = TestClient(create_app(RunStore(tmp_path / "runs")))
+
+    created = client.post(
+        "/api/runs", json={"fixture_name": "four_wire_contact_control_guided"}
+    )
+
+    assert created.status_code == 200
+    assert created.json()["state"] == "EXPORTED"
+    detail = client.get(f"/api/runs/{created.json()['run_id']}")
+    assert detail.status_code == 200
+    assert detail.json()["report"]["verdict"]["label"] == "MECHANISM_NOT_ESTABLISHED"
+    assert detail.json()["report"]["dataset_provenance"] == "FIXTURE_DEMO"
+
+
 def test_api_rejects_invalid_run_without_disclosing_path(tmp_path: Path) -> None:
     client = TestClient(create_app(RunStore(tmp_path / "runs")))
 
@@ -67,3 +85,37 @@ def test_api_gathers_allowlisted_references_into_a_draft_run(tmp_path: Path) -> 
     body = response.json()
     assert body["draft"]["claim"]["claim"] == "What explains this resistance change?"
     assert body["draft"]["sources"][0]["id"] == "openalex-test-source"
+    assert body["draft"]["source_relevance"][0]["source_id"] == "openalex-test-source"
+
+
+def test_api_can_audit_a_hioki_resistance_transient_without_creating_a_run(tmp_path: Path) -> None:
+    client = TestClient(create_app(RunStore(tmp_path / "runs")))
+    started_at = datetime(2026, 7, 15, 14, 4, 0)
+    records = [
+        "%s,%s,100,50,%.12g,NO,OFF,OFF,25,24"
+        % (
+            (started_at + timedelta(seconds=second)).date().isoformat(),
+            (started_at + timedelta(seconds=second)).time().isoformat(),
+            100 * math.sqrt(second + 1),
+        )
+        for second in range(12)
+    ]
+    raw = "\n".join(
+        [
+            "MODEL,SM7120",
+            "DATE,TIME,Voltage[V],V moni[V],Measurement value[ohm],Comparator,Contact Check,V Check,Temperature[deg.],Humidity[%rh]",
+            *records,
+        ]
+    )
+
+    response = client.post(
+        "/api/transient-audit",
+        files={"file": ("trace.csv", raw, "text/csv")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["analysis"]["decay_exponent"] == pytest.approx(0.5, abs=1e-6)
+    assert payload["analysis"]["warnings"] == ["FIT_WINDOW_INCOMPLETE"]
+    assert payload["evidence_ref"]["id"] == "transient-001:rows-3-14"
+    assert list((tmp_path / "runs").glob("*")) == []

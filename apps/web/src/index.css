@@ -6,8 +6,9 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-    --font-heading: var(--font-sans);
+    --font-heading: var(--font-serif);
     --font-sans: 'Geist Variable', sans-serif;
+    --font-serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -129,7 +130,46 @@
     }
 }
 
-::selection { background: #171717; color: white; }
+::selection { background: #17324d; color: white; }
+
+.brand-serif {
+  font-family: var(--font-serif);
+}
+
+.controlfirst-start {
+  padding-left: clamp(0rem, 5vw, 4.5rem);
+}
+
+.controlfirst-wordmark {
+  position: absolute;
+  top: 0.25rem;
+  left: 0;
+  color: #17324d;
+  font-family: var(--font-serif);
+  font-size: 0.74rem;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+
+.claim-entry {
+  font-family: var(--font-serif);
+}
+
+.claim-entry::placeholder {
+  opacity: 1;
+}
+
+@media (max-width: 640px) {
+  .controlfirst-start {
+    padding-left: 1.3rem;
+  }
+
+  .controlfirst-wordmark {
+    font-size: 0.62rem;
+  }
+}
 
 .eyebrow { font-size: 0.75rem; font-weight: 650; letter-spacing: 0.1em; text-transform: uppercase; color: color-mix(in srgb, currentColor 62%, transparent); }
 .claim-text { margin-top: 1rem; font-size: 1.05rem; line-height: 1.65; letter-spacing: -0.02em; }
@@ -139,3 +179,40 @@
 .status-observed { color: #285479; background: #eef6fb; }
 .status-inferred { color: #805720; background: #fff7df; }
 .status-unresolved { color: #a13d25; background: #fff0eb; }
+
+.soft-stage {
+  border: 1px solid rgb(23 50 77 / 0.15);
+  border-radius: 2rem;
+  background: #f3f7f4;
+  box-shadow: 0 24px 70px rgb(23 50 77 / 0.08);
+}
+
+.soft-surface {
+  border: 1px solid rgb(23 50 77 / 0.14);
+  border-radius: 1.35rem;
+  box-shadow: 0 14px 38px rgb(23 50 77 / 0.05);
+}
+
+.control-action {
+  border-radius: 9999px;
+  transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .control-action:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px rgb(23 50 77 / 0.18);
+  }
+
+  .decision-card {
+    animation: decision-rise 440ms both;
+  }
+
+  .decision-card:nth-of-type(2) { animation-delay: 70ms; }
+  .decision-card:nth-of-type(3) { animation-delay: 140ms; }
+}
+
+@keyframes decision-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}

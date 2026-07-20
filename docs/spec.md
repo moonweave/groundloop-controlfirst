@@ -8,7 +8,7 @@ Its governing rule is simple: an observed effect is not, by itself, a proven mec
 
 ## User and outcome
 
-The primary user is a materials or experimental-physics researcher interpreting electrical or thermal transport data. They bring a proposed mechanism, measurement context, and a supported CSV. GroundLoop retrieves a small, bounded set of bibliographic metadata and indexed abstracts from one allowlisted academic index; the researcher does not manually collect or paste source URLs.
+The primary user is a materials or experimental-physics researcher interpreting electrical or thermal transport data. They bring a proposed mechanism, measurement context, and a supported CSV. GroundLoop retrieves a small, bounded set of bibliographic metadata and abstracts from fixed OpenAlex and arXiv endpoints; indexed abstracts and preprints are visibly distinguished, and the researcher does not manually collect or paste source URLs.
 
 The Build Week wedge is intentionally narrow. GroundLoop does not claim support for all researchers, arbitrary scientific domains, or arbitrary dataset schemas.
 
@@ -44,14 +44,15 @@ The companion web app prepares evidence, lets the researcher inspect it, and ren
 The expected flow is:
 
 1. The researcher enters a claim or research question in the local web app.
-2. GroundLoop retrieves 2–3 indexed abstracts from an allowlisted academic index, marks them as untrusted evidence, and shows their provenance.
-3. The researcher adds measurement context and a CSV, then freezes an evidence packet.
-4. The researcher asks Codex to analyse the active GroundLoop packet.
-5. Codex invokes GroundLoop MCP tools and GPT-5.6 reasons over their structured results.
-6. GroundLoop Core saves a JSON and Markdown report.
-7. The web app renders the evidence traces, status labels, and ControlFirst recommendation only after export.
+2. GroundLoop retrieves 2–3 labelled abstracts from fixed scholarly endpoints, marks them as untrusted evidence, and shows whether each is an indexed abstract or an arXiv preprint.
+3. The researcher adds measurement context and a CSV, then may ask Codex to explore the editable draft.
+4. The researcher freezes an evidence packet only when they want a decision-ready boundary.
+5. The researcher asks Codex to analyse the active GroundLoop packet.
+6. Codex invokes GroundLoop MCP tools and GPT-5.6 reasons over their structured results.
+7. GroundLoop Core saves a JSON and Markdown report.
+8. The web app renders the evidence traces, status labels, and ControlFirst recommendation only after export.
 
-Before Codex sees a packet, GroundLoop records a source-by-source lexical relevance screen (`direct`, `contextual`, or `limited`) using transparent overlap between the research question and each title/abstract. This is a retrieval quality gate only: it never declares that a source supports a mechanism. Codex must inspect the returned excerpt and locator for each source separately.
+Before Codex sees a packet, GroundLoop records a source-by-source lexical relevance screen (`direct`, `contextual`, or `limited`) using transparent overlap between the research question and each title/abstract. This is an advisory retrieval signal, not a packet gate and never a declaration that a source supports a mechanism. Codex may reason across all supplied excerpts, but must inspect each source's locator and distinguish actual support from adjacent context.
 
 ## Architecture
 
@@ -63,6 +64,9 @@ Python domain logic shared by the MCP adapter and local HTTP adapter. It perform
 
 Exposes the research workflow to Codex. The MVP tools are:
 
+- `explore_evidence`
+- `inspect_retrieved_sources`
+- `adjudicate_sources`
 - `create_evidence_packet`
 - `inspect_sources`
 - `analyze_dataset`
@@ -103,13 +107,15 @@ Every substantive conclusion must be traceable to evidence.
 The demonstrable Build Week slice includes:
 
 - one research claim;
-- two to three automatically retrieved, provenance-bearing indexed abstracts;
+- two to three automatically retrieved, provenance-bearing abstracts, with arXiv preprints visibly labelled as not peer-reviewed;
 - one CSV artifact, beginning with a fixed public fixture for the demo;
 - top-down expectation extraction and bottom-up deterministic data inspection;
 - the four output states;
 - one ranked ControlFirst recommendation;
 - exportable JSON and Markdown reports with provenance;
 - a local companion UI and a Codex MCP workflow.
+
+The build also contains one separate, non-report diagnostic for a Hioki SM7120 resistance-mode transient export. It derives current as `V/R` and returns a fixed-window OLS log–log diagnostic with explicit warnings. This adapter has no literature retrieval, claim validation, report export, or persistence path; it is not a claim of arbitrary-format support or a replacement for a study's robust-fitting method.
 
 The MVP explicitly excludes:
 
@@ -133,7 +139,7 @@ The MVP therefore requires:
 - local per-project run isolation and no raw research data in logs;
 - file-size and format limits for CSV input;
 - no arbitrary network access, shell execution, external actions, or credential access from the analysis path;
-- one allowlisted, read-only OpenAlex metadata/abstract lookup used only during the explicit reference-discovery step; user input is treated only as a search term, never as a URL or request target;
+- two fixed, allowlisted, read-only metadata/abstract lookups (OpenAlex and arXiv) used only during the explicit reference-discovery step; user input is treated only as a search term, never as a URL or request target;
 - sanitised rendering for Markdown and report content;
 - rejection of malformed inputs rather than silent best-effort interpretation.
 

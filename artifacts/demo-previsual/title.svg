@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#fcfdfb"/>
+  <text x="640" y="294" text-anchor="middle" fill="#17324d" font-family="Arial, sans-serif" font-size="52" font-weight="700" letter-spacing="1">THE TRACE CHANGED.</text>
+  <text x="640" y="362" text-anchor="middle" fill="#b55a40" font-family="Arial, sans-serif" font-size="28" font-weight="700" letter-spacing="1">THE MECHANISM IS NOT PROVEN.</text>
+  <line x1="560" y1="414" x2="720" y2="414" stroke="#a9c7b6" stroke-width="2"/>
+  <text x="640" y="454" text-anchor="middle" fill="#557164" font-family="Arial, sans-serif" font-size="19" letter-spacing="2">GROUNDLOOP / CONTROLFIRST</text>
+</svg>

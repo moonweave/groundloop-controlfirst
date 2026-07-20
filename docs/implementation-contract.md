@@ -18,7 +18,11 @@ research question + allowlisted reference discovery + CSV
   -> JSON/Markdown report rendered in the local web app
 ```
 
-There is no hosted service, user API key, direct OpenAI API call, arbitrary URL import, PDF parsing, figure analysis, arbitrary code execution, or automatic external action. The one bounded external operation is an explicit search against the fixed, allowlisted OpenAlex works endpoint; it returns only metadata and indexed abstracts, never paper full text.
+There is no hosted service, user API key, direct OpenAI API call, arbitrary URL import, PDF parsing, figure analysis, arbitrary code execution, or automatic external action. The bounded external operations are explicit searches against fixed, allowlisted OpenAlex works and arXiv Atom endpoints; they return only metadata and abstracts, never paper full text. arXiv results are always displayed as preprints, not peer-reviewed evidence.
+
+### Additive local transient diagnostic
+
+Outside the frozen evidence-to-report lifecycle, the local HTTP adapter may accept one Hioki SM7120 resistance-mode CSV in memory. It must require the instrument table columns `DATE`, `TIME`, `Voltage[V]`, and `Measurement value[ohm]`; derive current only as `V/R`; use the declared 10–100 s fit window; and return an `ols_log_log` exponent, R², row locator, input hash, and explicit warning codes. It must not create a run, persist the raw upload, perform discovery, call an LLM, construct findings, or imply equivalence to a separately configured robust fit.
 
 ## 2. Fixed demo scenario
 
@@ -214,6 +218,7 @@ The local API binds to `127.0.0.1` only. It has no authentication because it nev
 | `POST /api/runs/{run_id}/sources` | validated source objects | run detail | allowed only in `DRAFT` |
 | `PUT /api/runs/{run_id}/methods` | Markdown text | run detail | allowed only in `DRAFT` |
 | `POST /api/runs/{run_id}/dataset` | CSV multipart upload | analysis preview | allowed only in `DRAFT` |
+| `POST /api/transient-audit` | one Hioki SM7120 resistance-mode CSV multipart upload | non-persistent deterministic diagnostic | no run is created |
 | `POST /api/runs/{run_id}/prepare` | none | evidence packet summary | validates inputs and moves to `PACKET_READY` |
 | `GET /api/runs/{run_id}/report` | none | report JSON | available only after `EXPORTED` |
 | `GET /api/runs/{run_id}/report.md` | none | Markdown report | available only after `EXPORTED` |
@@ -228,8 +233,10 @@ Every MCP tool accepts a `run_id` and operates only on a prepared local run. Too
 
 | Tool | Input beyond `run_id` | Output / state change |
 | --- | --- | --- |
-| `create_evidence_packet` | none | compact packet with claim, methods, source metadata/excerpts, deterministic data summary; creates or returns `PACKET_READY` |
-| `inspect_sources` | none | source-by-source lexical relevance screen, source-derived expectations, and source evidence IDs; moves to `SOURCES_INSPECTED` |
+| `inspect_retrieved_sources` | none | every retrieved candidate excerpt/locator, provider/status, and lexical reading order; does not change state |
+| `adjudicate_sources` | `SourceAdjudication[]` | requires exactly one `direct`/`contextual`/`reject` decision for every candidate and selects at least one direct source; remains `DRAFT` |
+| `create_evidence_packet` | none | returns the compact packet only after the researcher explicitly freezes it in the local UI; never changes state |
+| `inspect_sources` | none | frozen semantic source-review rationales, source-derived expectations, and source evidence IDs; moves to `SOURCES_INSPECTED` |
 | `analyze_dataset` | none | deterministic dataset facts and data evidence IDs; moves to `DATA_ANALYZED` |
 | `reconcile_evidence` | proposed `Finding[]` | validates and persists findings; moves to `FINDINGS_VALIDATED` |
 | `propose_control` | proposed `ControlProposal` | validates and persists one proposal; moves to `CONTROL_VALIDATED` |
@@ -237,16 +244,18 @@ Every MCP tool accepts a `run_id` and operates only on a prepared local run. Too
 
 `reconcile_evidence` and `propose_control` are validators/persistence tools, not model calls. Codex and GPT-5.6 generate candidate reasoning from the bounded tool outputs, then submit it for validation. If validation fails, the returned error identifies the violated rule and Codex revises only that structured candidate.
 
-The final report is generated from validated JSON with a deterministic template. It must display `MECHANISM NOT ESTABLISHED`, the blocking Inferred/Unresolved finding IDs, source titles, transparent lexical retrieval screens, locators, hashes, data row ranges, all findings grouped by status, and the control proposal. It never displays hidden tool instructions or raw files outside their cited excerpts.
+The final report is generated from validated JSON with a deterministic template. It must display `MECHANISM NOT ESTABLISHED`, the blocking Inferred/Unresolved finding IDs, source titles, semantic source-review rationales, abstract-level limitations when applicable, locators, hashes, data row ranges, exactly one finding in every state, the control proposal, and the decision history. Lexical retrieval screens may guide reading before freezing but are not report evidence. It never displays hidden tool instructions or raw files outside their cited excerpts.
 
 ## 9. Companion UI contract
 
-The UI has four views only:
+The UI has four report-workflow views plus one clearly separate, non-persistent transient diagnostic block:
 
-1. **Run setup:** create a draft from a research question; automatically retrieve 2–3 indexed abstracts; then add methods note and CSV. The fixture remains an explicit demo-only option.
+1. **Run setup:** create a draft from a research question; automatically retrieve 2–3 OpenAlex/arXiv abstracts as candidates; label every arXiv result as a preprint, not peer-reviewed; then copy a deliberate Codex source-review brief. Candidate retrieval alone cannot freeze a packet: Codex must label every candidate `direct`, `contextual`, or `reject`, with at least one direct source. Then add a methods note and CSV. The fixture remains an explicit demo-only option.
 2. **Evidence packet:** show immutable source/data cards, hashes, expected conditions, and deterministic data facts after preparation.
-3. **Codex handoff:** display the exact copyable prompt: `Analyse GroundLoop run <run_id>. Call inspect_sources and analyze_dataset first, then validate findings and one ControlFirst proposal before exporting the report.` It does not call Codex itself.
+3. **Codex handoff:** before a packet exists, present a **Copy Codex source review** action that asks Codex to call `inspect_retrieved_sources` and `adjudicate_sources`. After source review, the researcher explicitly freezes the selected sources, methods, and data; this produces a visible audit event. After a packet exists, present one deliberate **Copy analysis brief** action with the exact prompt: `Use the GroundLoop MCP for run <run_id>. This evidence packet is already frozen after semantic source review. Call inspect_sources, then analyze_dataset. Treat only the supplied excerpts, locators, and saved source-review rationales as source support; lexical ordering is never source support. Then validate exactly four findings—one Established, one Observed, one Inferred, and one Unresolved. Propose one atomic ControlFirst experiment, not a bundled follow-up, then export the report.` The researcher pastes either brief into Codex; the browser does not call Codex itself or use a model API key. After copy, the UI polls the local saved run so the researcher need not repeatedly refresh manually.
 4. **Report:** render the final four-state evidence table, control proposal, and provenance links after export.
+
+The transient diagnostic block must identify the accepted instrument/schema, show its OLS method and fit window, and state that its result does not establish a mechanism or replace the study's configured robust analysis.
 
 Markdown rendering uses a sanitiser with raw HTML disabled. The UI must make it visually impossible to confuse an `Inferred` statement with an `Established` statement.
 
@@ -254,7 +263,7 @@ Markdown rendering uses a sanitiser with raw HTML disabled. The UI must make it 
 
 Security requirements are implementation constraints, not documentation claims:
 
-- The process accepts no user-supplied URL or network destination. Its only runtime HTTP client is the explicit reference-discovery adapter, which uses a fixed HTTPS OpenAlex endpoint, query-encodes a bounded research question, has a short timeout, and never fetches full text.
+- The process accepts no user-supplied URL or network destination. Its only runtime HTTP clients are explicit reference-discovery adapters using fixed HTTPS OpenAlex and arXiv endpoints, query-encoding a bounded research question, using short timeouts, and never fetching full text.
 - The process accepts no shell command, executable path, arbitrary filename, or external URI from the UI or MCP tool schemas.
 - Upload names are discarded; files are copied under generated artifact IDs.
 - Source excerpts are transported as a distinct `untrusted_content` field and never concatenated into tool instructions.

@@ -6,7 +6,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from packages.core.models import ControlProposal, Finding
+from packages.core.models import ControlProposal, Finding, SourceAdjudication
 from packages.core.store import RunStore
 
 
@@ -30,37 +30,90 @@ def _result(callable_: Any) -> dict[str, Any]:
         return {"ok": False, "error": {"code": "VALIDATION_FAILED", "message": str(exc)}}
 
 
-@mcp.tool(description=f"Prepare and return the bounded local evidence packet. {GUIDANCE}")
+@mcp.tool(description=f"Return an editable draft's claim, supplied sources, retrieval signals, and deterministic data facts for exploratory reasoning. This does not freeze evidence, create findings, or support a conclusion. {GUIDANCE}")
+def explore_evidence(run_id: str) -> dict[str, Any]:
+    return _result(lambda: store.explore_draft(run_id))
+
+
+@mcp.tool(description=f"Return every automatically retrieved candidate source for semantic review before it can enter an evidence packet. Read each supplied title, excerpt, locator, and provider status. The lexical screen only prioritizes reading; it is never source support. arXiv candidates are preprints, not peer-reviewed consensus. {GUIDANCE}")
+def inspect_retrieved_sources(run_id: str) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        draft = store.explore_draft(run_id)
+        review = draft.get("retrieval_review")
+        if not review:
+            raise ValueError("this run has no automatically retrieved source candidates to adjudicate")
+        if review["status"] == "completed":
+            raise ValueError("retrieved sources were already adjudicated; create the evidence packet next")
+        sources = draft["sources"]
+        return {
+            "claim": draft["claim"],
+            "candidate_sources": sources,
+            "source_relevance": draft["source_relevance"],
+            "retrieval_review": review,
+            "evidence_refs": [item for item in draft["evidence_refs"] if item["kind"] == "source"],
+        }
+    return _result(operation)
+
+
+@mcp.tool(description=f"Persist a semantic classification for every automatically retrieved candidate before freezing. Use direct only when the supplied excerpt and locator address the claimed measurement, its confound, or its discriminating control. Provider status is a limitation: an arXiv candidate is a preprint, not peer-reviewed consensus. At least one source must be direct; contextual and reject sources remain in the candidate audit but cannot enter the evidence packet. {GUIDANCE}")
+def adjudicate_sources(run_id: str, adjudications: list[SourceAdjudication]) -> dict[str, Any]:
+    def operation() -> dict[str, Any]:
+        draft = store.adjudicate_retrieved_sources(run_id, adjudications)
+        review = draft["retrieval_review"]
+        selected_ids = set(review["direct_source_ids"])
+        return {
+            "retrieval_review": review,
+            "decision_sources": [source for source in draft["sources"] if source["id"] in selected_ids],
+            "next_step": "Create the evidence packet only after the researcher confirms the selected direct sources, methods, and data.",
+        }
+    return _result(operation)
+
+
+@mcp.tool(description=f"Return the bounded local evidence packet after the researcher explicitly freezes it in GroundLoop. This tool never freezes an editable draft. {GUIDANCE}")
 def create_evidence_packet(run_id: str) -> dict[str, Any]:
     def operation() -> dict[str, Any]:
         state = store.get_summary(run_id).state
         if state.value == "DRAFT":
-            store.prepare_packet(run_id)
-        elif state.value != "PACKET_READY":
+            raise ValueError("the researcher must explicitly freeze the reviewed packet in the local GroundLoop UI before Codex can inspect it")
+        if state.value != "PACKET_READY":
             raise ValueError("evidence packet was already consumed; begin analysis from the current state")
         return store.get_packet(run_id)
     return _result(operation)
 
 
-@mcp.tool(description=f"Return a source-by-source lexical relevance screen and expectations for Codex to adjudicate. A direct screen is not source support; every source still requires inspection. {GUIDANCE}")
+@mcp.tool(description=f"Return the frozen, semantically selected sources with titles, excerpts, locators, provider status, and saved review rationales before deterministic data analysis. Retrieval lexical screens are not returned as source support. arXiv items remain preprints, not peer-reviewed consensus. {GUIDANCE}")
 def inspect_sources(run_id: str) -> dict[str, Any]:
     def operation() -> dict[str, Any]:
         packet = store.get_packet(run_id)
         source_refs = {item["artifact_id"]: item["id"] for item in packet["evidence_refs"] if item["kind"] == "source"}
-        screens = packet.get("source_relevance", [])
-        expectations = []
-        for screen in screens:
-            source_id = screen["source_id"]
-            expectations.append(
+        source_review = packet.get("source_review")
+        if source_review:
+            expectations = [
                 {
-                    "expected_observation": f"Source {source_id} may address the claim terms: {', '.join(screen['matched_terms']) or 'none'}.",
-                    "condition": "Only this supplied source excerpt and locator are treated as source evidence; lexical overlap is not support.",
-                    "falsifier": "The excerpt does not state a measurement principle, confound, or limitation relevant to the proposed mechanism.",
+                    "expected_observation": review["rationale"],
+                    "condition": "This source was selected by the completed semantic source review; only its supplied excerpt and locator are in the frozen boundary.",
+                    "falsifier": "The supplied excerpt does not address the measurement principle, confound, or discriminating control stated in the review rationale.",
+                    "evidence_ref_ids": [source_refs[review["source_id"]]],
+                }
+                for review in source_review["adjudications"]
+            ]
+        else:
+            expectations = [
+                {
+                    "expected_observation": "The supplied source states a measurement principle or confound relevant to this frozen packet.",
+                    "condition": "Only this supplied source excerpt and locator are treated as source evidence.",
+                    "falsifier": "The supplied excerpt does not state a measurement principle, confound, or limitation relevant to the proposed mechanism.",
                     "evidence_ref_ids": [source_refs[source_id]],
                 }
-            )
+                for source_id in source_refs
+            ]
         store.inspect_sources(run_id, expectations)
-        return {"source_relevance": screens, "expectations": expectations, "evidence_refs": [item for item in packet["evidence_refs"] if item["kind"] == "source"]}
+        return {
+            "sources": packet["sources"],
+            "source_review": source_review,
+            "expectations": expectations,
+            "evidence_refs": [item for item in packet["evidence_refs"] if item["kind"] == "source"],
+        }
     return _result(operation)
 
 
@@ -73,19 +126,21 @@ def analyze_dataset(run_id: str) -> dict[str, Any]:
     return _result(operation)
 
 
-@mcp.tool(description=f"Validate proposed four-state findings with only returned evidence IDs, then persist them. {GUIDANCE}")
-def reconcile_evidence(run_id: str, findings: list[dict[str, Any]]) -> dict[str, Any]:
-    return _result(lambda: store.reconcile_findings(run_id, [Finding.model_validate(item) for item in findings]))
+@mcp.tool(description=f"Validate and persist exactly four findings: one Established, one Observed, one Inferred, and one Unresolved. Use only returned evidence IDs; an Inferred finding must provide separate uncertainty and alternative_explanation fields. {GUIDANCE}")
+def reconcile_evidence(run_id: str, findings: list[Finding]) -> dict[str, Any]:
+    return _result(lambda: store.reconcile_findings(run_id, findings))
 
 
-@mcp.tool(description=f"Validate and persist one discriminating ControlFirst proposal. {GUIDANCE}")
-def propose_control(run_id: str, control: dict[str, Any]) -> dict[str, Any]:
-    return _result(lambda: store.propose_control(run_id, ControlProposal.model_validate(control)))
+@mcp.tool(description=f"Validate and persist one primary discriminating ControlFirst experiment. Do not bundle a lead swap, alternate mode, or follow-up control into it. Cite at least one Inferred or Unresolved finding and include exactly two if/then outcomes. {GUIDANCE}")
+def propose_control(run_id: str, control: ControlProposal) -> dict[str, Any]:
+    return _result(lambda: store.propose_control(run_id, control))
 
 
 @mcp.tool(description=f"Export the validated report after all analysis states are complete. {GUIDANCE}")
 def export_report(run_id: str) -> dict[str, Any]:
-    return _result(lambda: store.export_report(run_id).model_dump(mode="json"))
+    return _result(
+        lambda: store.export_report(run_id).model_dump(mode="json", by_alias=True)
+    )
 
 
 def run() -> None:

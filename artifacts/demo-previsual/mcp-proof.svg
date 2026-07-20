@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#f3f7f4"/>
+  <rect x="178" y="92" width="924" height="536" rx="28" fill="#17324d"/>
+  <circle cx="226" cy="142" r="7" fill="#f4c9ba"/><circle cx="250" cy="142" r="7" fill="#f5d99b"/><circle cx="274" cy="142" r="7" fill="#a9c7b6"/>
+  <text x="318" y="150" fill="#fcfdfb" font-family="Arial, sans-serif" font-size="18" font-weight="700">GroundLoop MCP · decision run</text>
+  <text x="230" y="214" fill="#a9c7b6" font-family="Arial, sans-serif" font-size="16">RUN 57bd357b · frozen evidence packet</text>
+  <g font-family="Arial, sans-serif" font-size="21">
+    <text x="240" y="284" fill="#f4c9ba">✓</text><text x="276" y="284" fill="#fcfdfb">01  inspect_sources</text><text x="832" y="284" fill="#a9c7b6">2 sources reviewed</text>
+    <text x="240" y="336" fill="#f4c9ba">✓</text><text x="276" y="336" fill="#fcfdfb">02  analyze_dataset</text><text x="832" y="336" fill="#a9c7b6">−45.8%</text>
+    <text x="240" y="388" fill="#f4c9ba">✓</text><text x="276" y="388" fill="#fcfdfb">03  reconcile_evidence</text><text x="832" y="388" fill="#a9c7b6">4 states</text>
+    <text x="240" y="440" fill="#f4c9ba">✓</text><text x="276" y="440" fill="#fcfdfb">04  propose_control</text><text x="832" y="440" fill="#a9c7b6">four-wire</text>
+    <text x="240" y="492" fill="#f4c9ba">✓</text><text x="276" y="492" fill="#fcfdfb">05  export_report</text><text x="832" y="492" fill="#a9c7b6">saved</text>
+  </g>
+  <line x1="230" y1="540" x2="1050" y2="540" stroke="#557164" stroke-width="1"/>
+  <text x="230" y="584" fill="#fcfdfb" font-family="Arial, sans-serif" font-size="24" font-weight="700">MECHANISM NOT ESTABLISHED</text>
+</svg>

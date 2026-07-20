@@ -27,6 +27,8 @@ class SourceInput(StrictModel):
     url_or_doi: str = Field(min_length=1, max_length=500)
     locator: Locator
     untrusted_content: str = Field(min_length=1, max_length=4000)
+    retrieval_provider: Literal["openalex", "arxiv"] = "openalex"
+    publication_status: Literal["indexed_abstract", "preprint"] = "indexed_abstract"
 
 
 class SourceRelevance(StrictModel):
@@ -36,6 +38,31 @@ class SourceRelevance(StrictModel):
     verdict: Literal["direct", "contextual", "limited"]
     matched_terms: list[str] = Field(max_length=12)
     reason: str = Field(min_length=1, max_length=500)
+
+
+class SourceAdjudication(StrictModel):
+    """A Codex review of one retrieved candidate, recorded before freezing."""
+
+    source_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    verdict: Literal["direct", "contextual", "reject"]
+    rationale: str = Field(min_length=1, max_length=500)
+
+
+class SourceReview(StrictModel):
+    """The semantic source-selection record that defines a retrieved packet."""
+
+    provider: str = Field(min_length=1, max_length=120)
+    adjudications: list[SourceAdjudication] = Field(min_length=1, max_length=3)
+    adjudicated_at: str = Field(min_length=1, max_length=80)
+
+
+class AuditEvent(StrictModel):
+    """A local, append-only explanation of a run state change."""
+
+    at: str = Field(min_length=1, max_length=80)
+    action: str = Field(pattern=r"^[a-z0-9_]+$")
+    state: RunState
+    summary: str = Field(min_length=1, max_length=300)
 
 class EvidenceRef(StrictModel):
     id: str = Field(min_length=3, max_length=120)
@@ -104,6 +131,30 @@ class DatasetAnalysis(StrictModel):
     cited_row_range: tuple[int, int]
     rows: list[dict[str, float]]
 
+
+class TransientAnalysis(StrictModel):
+    """Deterministic diagnostic for a single SM7120 resistance transient.
+
+    This is deliberately a measurement-format adapter, not a generic claim or
+    mechanism analyzer. Its exponent is an OLS diagnostic and must not be
+    presented as equivalent to a separately configured robust fit.
+    """
+
+    artifact_id: str = "data-001"
+    columns: list[str]
+    row_count: int
+    source_row_range: tuple[int, int]
+    time_range_s: tuple[float, float]
+    voltage_range_v: tuple[float, float]
+    first_current_a: float
+    last_current_a: float
+    fit_window_s: tuple[float, float]
+    fit_point_count: int
+    fit_method: Literal["ols_log_log"]
+    decay_exponent: float
+    log_log_r2: float
+    warnings: list[str]
+
 class RunSummary(StrictModel):
     run_id: str
     state: RunState
@@ -118,7 +169,9 @@ class Report(StrictModel):
     control: ControlProposal
     sources: list[SourceInput]
     source_relevance: list[SourceRelevance] = Field(default_factory=list)
+    source_review: SourceReview | None = None
     dataset: DatasetAnalysis
+    dataset_provenance: Literal["USER_MEASUREMENT", "LABELLED_DEMO", "FIXTURE_DEMO"] = "USER_MEASUREMENT"
     verdict: MechanismVerdict
     exported_at: str
 
