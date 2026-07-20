@@ -115,6 +115,23 @@ def test_convergence_contract_round_trips_from_codex_to_export(tmp_path: Path) -
     assert report.convergence.control.closes_signature_ids == ["signature-localization"]
     assert report.verdict.label == "MECHANISM_NOT_ESTABLISHED"
 
+    markdown = store.get_report_markdown(run_id)
+    assert "## Convergence Map" in markdown
+    assert "### Required signatures" in markdown
+    assert "`signature-response`" in markdown
+    assert "Expected observation: Resistance decreases across temperature." in markdown
+    assert "### Signature alignments" in markdown
+    assert "`signature-localization` — **Confounded**" in markdown
+    assert "Alternative explanation: Temperature-dependent contact resistance can produce the same trace." in markdown
+    assert "### Dominant gap" in markdown
+    assert report.convergence.dominant_gap in markdown
+    assert "### Source roles" in markdown
+    assert "`src-method-limit` — **method limit** (direct)" in markdown
+    assert "### Control contract" in markdown
+    assert "Closes signatures: signature-localization" in markdown
+    assert "Leaves open signatures: signature-specificity" in markdown
+    assert "If The decrease persists, then Sample-intrinsic R(T) gains support." in markdown
+
 
 def test_draft_projection_makes_deterministic_gap_visible(tmp_path: Path) -> None:
     store = RunStore(tmp_path / "runs")

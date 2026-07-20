@@ -170,6 +170,18 @@ def test_labelled_demo_data_preserves_existing_measurement_context(tmp_path: Pat
     assert store.get_detail(run.run_id)["draft"]["methods"] == methods
 
 
+def test_update_methods_replaces_existing_valid_draft_methods(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    run = store.create_run()
+    original = "Two-terminal resistance was recorded with fixed current and contact geometry."
+    replacement = "Four-terminal resistance was recorded with the same sample and temperature program."
+
+    store.update_methods(run.run_id, original)
+    store.update_methods(run.run_id, replacement)
+
+    assert store.get_detail(run.run_id)["draft"]["methods"] == replacement
+
+
 def test_retrieved_candidates_require_a_complete_codex_adjudication_before_freezing(tmp_path: Path) -> None:
     store = RunStore(tmp_path / "runs")
     run = store.create_run()

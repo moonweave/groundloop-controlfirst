@@ -247,27 +247,6 @@ function datasetFrom(detail: Detail): Dataset | undefined {
   return detail.packet?.dataset ?? detail.report?.dataset ?? detail.draft?.dataset ?? undefined;
 }
 
-const DEFAULT_CONTROL: Control = {
-  confound: "Temperature-dependent contact or lead resistance",
-  experiment:
-    "Repeat the same temperature sweep in four-wire mode while holding the sample, current, mounting, and temperature program fixed.",
-  preconditions: ["Same sample", "Same current", "Same mounting", "Same temperature program"],
-  outcomes: [
-    {
-      if_: "The resistance decrease persists in four-wire mode",
-      then: "Sample-intrinsic R(T) gains support; the transition-specific signature remains open.",
-    },
-    {
-      if_: "The resistance decrease weakens or disappears in four-wire mode",
-      then: "Contact or lead contribution becomes the stronger explanation.",
-    },
-  ],
-  priority: "high",
-  feasibility: "One matched measurement changes the identifiability of the dominant gap.",
-  closes_signature_ids: ["signature-localization"],
-  leaves_open_signature_ids: ["signature-specificity"],
-};
-
 function briefFor(detail: Detail) {
   const claim = detail.convergence?.claim ?? detail.draft?.claim?.claim ?? detail.packet?.claim.claim ?? "";
   const method = detail.convergence?.measurement_method ?? detail.packet?.methods ?? detail.draft?.methods ?? "";
@@ -507,7 +486,7 @@ function Workspace({
 }) {
   const map = detail.convergence;
   const method = map?.measurement_method ?? detail.packet?.methods ?? detail.draft?.methods ?? "Measurement method pending";
-  const stateLabel = detail.run.state === "EXPORTED" ? "EVIDENCE FROZEN" : detail.run.state.replaceAll("_", " ");
+  const stateLabel = detail.run.state === "EXPORTED" ? "REPORT EXPORTED" : detail.run.state.replaceAll("_", " ");
   const freeze = async () => {
     try {
       await api(`/api/runs/${detail.run.run_id}/freeze`, { method: "POST", body: "{}" });
@@ -535,7 +514,7 @@ function MapScreen({ detail, onNotice, onFreeze }: { detail: Detail; onNotice: (
   const [copied, setCopied] = useState(false);
   const selected = map?.signatures.find((item) => item.id === selectedId);
   const selectedAlignment = map?.alignments.find((item) => item.signature_id === selectedId);
-  const control = map?.control ?? DEFAULT_CONTROL;
+  const control = map?.control;
   const rows = dataset?.rows ?? [];
   const change = dataset?.percent_change ?? 0;
   const copyBrief = async () => {
@@ -548,6 +527,24 @@ function MapScreen({ detail, onNotice, onFreeze }: { detail: Detail; onNotice: (
       onNotice("Clipboard access was unavailable. Open the Audit / Export tab for the Run brief.");
     }
   };
+  const copyControl = async () => {
+    if (!control) return;
+    const contract = [
+      "GroundLoop follow-up control contract",
+      `Confound: ${control.confound}`,
+      `Experiment: ${control.experiment}`,
+      `Preconditions: ${control.preconditions.join("; ")}`,
+      `Closes signatures: ${control.closes_signature_ids?.join(", ") ?? "none recorded"}`,
+      `Leaves open signatures: ${control.leaves_open_signature_ids?.join(", ") ?? "none recorded"}`,
+      ...control.outcomes.map((outcome) => `If ${outcome.if_ ?? outcome.if}, then ${outcome.then}`),
+    ].join("\n");
+    try {
+      await navigator.clipboard.writeText(contract);
+      onNotice("Follow-up control contract copied. Create the next Run manually when ready.");
+    } catch {
+      onNotice("Clipboard access was unavailable. The control contract remains visible in this Run.");
+    }
+  };
   if (!map) return <div className="workspace-empty"><ScanLine size={32} /><h1>Convergence Map waiting for inputs.</h1><p>Add the claim, method, and CSV to begin the deterministic measurement layer.</p></div>;
   return (
     <div className="map-page">
@@ -558,7 +555,7 @@ function MapScreen({ detail, onNotice, onFreeze }: { detail: Detail; onNotice: (
           <div className="alignment-field"><div className="field-caption"><span>ALIGNMENT FIELD</span><span>THEORY → METHOD → EVIDENCE</span></div><div className="alignment-grid">{map.signatures.map((signature) => { const alignment = map.alignments.find((item) => item.signature_id === signature.id); return <button type="button" key={signature.id} className={`alignment-lane ${alignment ? statusClass(alignment.status) : "status-missing"} ${selectedId === signature.id ? "selected" : ""}`} onClick={() => setSelectedId(signature.id)}><span className="alignment-wire" /><span className="alignment-node">{alignment?.status === "Observed" ? <Check size={14} /> : alignment?.status === "Contradicted" ? "×" : alignment?.status === "Confounded" ? "∥" : "○"}</span><span className="alignment-status">{statusLabel(alignment?.status ?? "Missing")}</span><span className="alignment-note">{alignment?.status === "Observed" ? "directly supported" : alignment?.status === "Confounded" ? "alternative remains viable" : alignment?.status === "Contradicted" ? "prediction not met" : "not in this measurement"}</span></button>; })}</div></div>
           <div className="evidence-band"><div className="band-topline light"><span><span className="trace-mark" />BOTTOM-UP / WHAT THIS MEASUREMENT ACTUALLY SHOWS</span><span>{dataset ? `${dataset.row_count} ROWS / DETERMINISTIC` : "DATA PENDING"}</span></div><div className="evidence-layout"><div className="trace-wrap">{rows.length ? <TraceChart rows={rows} /> : <div className="trace-empty"><FileUp size={18} /><span>Upload a UTF-8 CSV to render the raw trace.</span></div>}</div><div className="measurement-boundary"><div className="boundary-code"><span>METHOD /</span><strong>{methodLabel(map.measurement_method)}</strong></div><div className="boundary-row"><span>MEASURES</span><strong>TOTAL LOOP RESISTANCE</strong></div><div className="boundary-row"><span>CANNOT DISTINGUISH</span><strong>SAMPLE <i>vs</i> CONTACT + LEAD</strong></div><div className="equation">R<sub>2W</sub> = R<sub>s</sub> + R<sub>c</sub> + R<sub>lead</sub></div></div></div>{dataset && <div className="metric-strip"><Metric label="TEMPERATURE" value={`${formatNumber(dataset.temperature_range_c[0], 0)}–${formatNumber(dataset.temperature_range_c[1], 0)} °C`} /><Metric label="RESISTANCE" value={`${formatNumber(dataset.first_resistance_ohm)} → ${formatNumber(dataset.last_resistance_ohm)} Ω`} /><Metric label="CHANGE" value={`${change >= 0 ? "+" : ""}${formatNumber(change)}%`} accent="cyan" /></div>}</div>
         </section>
-        <aside className="gap-rail"><div className="rail-cap"><span>THE GAP</span><span>IDENTIFIABILITY</span></div><div className="verdict-block"><span className="verdict-pulse" /><p>{map.freeze_status === "FROZEN" ? "MECHANISM" : "DECISION"}</p><h2>{map.freeze_status === "FROZEN" ? "NOT ESTABLISHED" : "PENDING"}</h2><div className="verdict-rule" /><span>{map.dominant_gap}</span></div><div className="control-module"><div className="control-label"><FlaskConical size={15} />NEXT DISCRIMINATING MOVE</div><h3>{control.experiment}</h3><div className="control-meta"><div><span>CHANGES</span><strong>SENSING TOPOLOGY</strong></div><div><span>HOLDS FIXED</span><strong>{control.preconditions.slice(0, 2).join(" · ")}</strong></div></div><div className="control-targets"><span><Check size={12} /> CLOSES {control.closes_signature_ids?.join(" / ") ?? "S2"}</span><span><ArrowRight size={12} /> LEAVES {control.leaves_open_signature_ids?.join(" / ") ?? "S3"} OPEN</span></div><button type="button" className="control-button" onClick={() => onNotice("Follow-up Run contract is ready. Upload the matched four-wire sweep as the next Run.")}>START FOLLOW-UP RUN <ArrowRight size={15} /></button></div><div className="outcome-fork"><span className="fork-label"><GitBranch size={13} />EXPECTED OUTCOME FORK</span>{control.outcomes.slice(0, 2).map((outcome, index) => <div className="outcome-row" key={`${outcome.then}-${index}`}><span>{index === 0 ? "PERSISTS" : "WEAKENS"}</span><p>{outcome.then}</p></div>)}</div><div className="rail-footer"><span><ShieldCheck size={13} /> NO MODEL CALL IN UI</span><span>PROVENANCE PRESERVED</span></div></aside>
+        <aside className="gap-rail"><div className="rail-cap"><span>THE GAP</span><span>IDENTIFIABILITY</span></div><div className="verdict-block"><span className="verdict-pulse" /><p>{map.freeze_status === "FROZEN" ? "MECHANISM" : "DECISION"}</p><h2>{map.freeze_status === "FROZEN" ? "NOT ESTABLISHED" : "PENDING"}</h2><div className="verdict-rule" /><span>{map.dominant_gap}</span></div>{control ? <><div className="control-module"><div className="control-label"><FlaskConical size={15} />NEXT DISCRIMINATING MOVE</div><h3>{control.experiment}</h3><div className="control-meta"><div><span>CHANGES</span><strong>SENSING TOPOLOGY</strong></div><div><span>HOLDS FIXED</span><strong>{control.preconditions.slice(0, 2).join(" · ")}</strong></div></div><div className="control-targets"><span><Check size={12} /> CLOSES {control.closes_signature_ids?.join(" / ") ?? "—"}</span><span><ArrowRight size={12} /> LEAVES {control.leaves_open_signature_ids?.join(" / ") ?? "—"} OPEN</span></div><button type="button" className="control-button" onClick={() => void copyControl()}>COPY FOLLOW-UP CONTRACT <ArrowRight size={15} /></button></div><div className="outcome-fork"><span className="fork-label"><GitBranch size={13} />EXPECTED OUTCOME FORK</span>{control.outcomes.slice(0, 2).map((outcome, index) => <div className="outcome-row" key={`${outcome.then}-${index}`}><span>{index === 0 ? "PERSISTS" : "WEAKENS"}</span><p>{outcome.then}</p></div>)}</div></> : <><div className="control-module control-pending"><div className="control-label"><FlaskConical size={15} />CONTROL PENDING</div><h3>Codex has not committed a control contract for this Run.</h3><p>Complete signature alignments before presenting the next discriminating move.</p></div><div className="outcome-fork"><span className="fork-label"><GitBranch size={13} />OUTCOME FORK PENDING</span><p>No committed control means no recorded outcome fork yet.</p></div></>}<div className="rail-footer"><span><ShieldCheck size={13} /> GPT-5.6 VIA CODEX MCP</span><span>LOCAL UI · NO CLOUD DATA UPLOAD</span></div></aside>
       </div>
       {selected && selectedAlignment && <section className="signature-inspector"><div><span className="kicker">SELECTED SIGNATURE / {selected.id.replace("signature-", "S")}</span><h2>{selected.name} <StatusBadge status={selectedAlignment.status} /></h2></div><div className="inspector-columns"><div><span className="inspector-label">REQUIRED</span><p>{selected.requirement}</p></div><div><span className="inspector-label">CURRENT RATIONALE</span><p>{selectedAlignment.rationale}</p></div><div><span className="inspector-label">EVIDENCE BOUNDARY</span><p>{selectedAlignment.evidence_ref_ids.length ? selectedAlignment.evidence_ref_ids.join(" · ") : "No direct evidence in this packet."}</p></div></div>{selectedAlignment.alternative_explanation && <div className="alternative-note"><TriangleAlert size={14} /><span>{selectedAlignment.alternative_explanation}</span></div>}</section>}
     </div>
@@ -597,7 +594,7 @@ function AuditScreen({ detail }: { detail: Detail }) {
   const [copied, setCopied] = useState(false);
   const brief = briefFor(detail);
   const copy = async () => { try { await navigator.clipboard.writeText(brief); setCopied(true); window.setTimeout(() => setCopied(false), 2000); } catch { setCopied(false); } };
-  return <div className="secondary-page audit-page"><div className="secondary-heading"><div><p className="kicker">AUDIT / EXPORT / RUN LINEAGE</p><h1>The decision, with its boundary attached.</h1><p>One page for the human decision sheet. The appendix keeps the exact Run artifacts, roles, hashes, and state transitions.</p></div><div className="export-actions"><button type="button" className="primary-button" onClick={() => window.open(apiUrl(`/api/runs/${detail.run.run_id}/report.md`), "_blank")} disabled={!report}><Download size={15} /> EXPORT MARKDOWN</button><button type="button" className="outline-button" onClick={() => void copy()}><Clipboard size={14} /> {copied ? "COPIED" : "COPY RUN BRIEF"}</button></div></div><div className="audit-grid"><section className="decision-sheet"><div className="sheet-top"><span className="kicker">DECISION SHEET / {formatId(detail.run.run_id)}</span><span>{report ? "EXPORTED" : detail.run.state.replaceAll("_", " ")}</span></div><h2>{map?.claim ?? detail.draft?.claim?.claim ?? "Claim pending"}</h2><div className="sheet-verdict"><span>VERDICT</span><strong>{report?.verdict.label.replaceAll("_", " ") ?? "DECISION PENDING"}</strong><p>{report?.verdict.reason ?? "The Convergence Map will become final after Codex records signatures, alignments, and one control contract."}</p></div><div className="sheet-control"><span>NEXT DISCRIMINATING MOVE</span><strong>{map?.control?.experiment ?? DEFAULT_CONTROL.experiment}</strong><div>{(map?.control?.closes_signature_ids ?? DEFAULT_CONTROL.closes_signature_ids)?.map((id) => <span key={id}><Check size={12} /> CLOSES {id}</span>)}{(map?.control?.leaves_open_signature_ids ?? DEFAULT_CONTROL.leaves_open_signature_ids)?.map((id) => <span key={id}><ArrowRight size={12} /> LEAVES {id} OPEN</span>)}</div></div></section><section className="timeline-panel"><div className="section-cap"><span>DECISION HISTORY</span><span>{(detail.timeline ?? []).length.toString().padStart(2, "0")} EVENTS</span></div>{(detail.timeline ?? []).length === 0 ? <p className="empty-note">No state transitions recorded.</p> : <div className="timeline">{detail.timeline?.map((event, index) => <div className="timeline-row" key={`${event.at}-${event.action}`}><span className={`timeline-node ${index === (detail.timeline?.length ?? 1) - 1 ? "current" : ""}`} /><div><span className="timeline-date">{event.at.slice(0, 19).replace("T", "  ")}</span><strong>{event.action.replaceAll("_", " ")}</strong><p>{event.summary}</p></div></div>)}</div>}</section></div><div className="audit-footnote"><Ruler size={15} /><span>Run data, source excerpts, and hashes remain local. Export is a view of this boundary, not a replacement for it.</span></div></div>;
+  return <div className="secondary-page audit-page"><div className="secondary-heading"><div><p className="kicker">AUDIT / EXPORT / RUN LINEAGE</p><h1>The decision, with its boundary attached.</h1><p>One page for the human decision sheet. The appendix keeps the exact Run artifacts, roles, hashes, and state transitions.</p></div><div className="export-actions"><button type="button" className="primary-button" onClick={() => window.open(apiUrl(`/api/runs/${detail.run.run_id}/report.md`), "_blank")} disabled={!report}><Download size={15} /> EXPORT MARKDOWN</button><button type="button" className="outline-button" onClick={() => void copy()}><Clipboard size={14} /> {copied ? "COPIED" : "COPY RUN BRIEF"}</button></div></div><div className="audit-grid"><section className="decision-sheet"><div className="sheet-top"><span className="kicker">DECISION SHEET / {formatId(detail.run.run_id)}</span><span>{report ? "REPORT EXPORTED" : detail.run.state.replaceAll("_", " ")}</span></div><h2>{map?.claim ?? detail.draft?.claim?.claim ?? "Claim pending"}</h2><div className="sheet-verdict"><span>VERDICT</span><strong>{report?.verdict.label.replaceAll("_", " ") ?? "DECISION PENDING"}</strong><p>{report?.verdict.reason ?? "The Convergence Map will become final after Codex records signatures, alignments, and one control contract."}</p></div><div className="sheet-control"><span>{map?.control ? "NEXT DISCRIMINATING MOVE" : "CONTROL PENDING"}</span><strong>{map?.control?.experiment ?? "Codex has not committed a control contract for this Run."}</strong>{map?.control && <div>{map.control.closes_signature_ids?.map((id) => <span key={`close-${id}`}><Check size={12} /> CLOSES {id}</span>)}{map.control.leaves_open_signature_ids?.map((id) => <span key={`open-${id}`}><ArrowRight size={12} /> LEAVES {id} OPEN</span>)}</div>}</div></section><section className="timeline-panel"><div className="section-cap"><span>DECISION HISTORY</span><span>{(detail.timeline ?? []).length.toString().padStart(2, "0")} EVENTS</span></div>{(detail.timeline ?? []).length === 0 ? <p className="empty-note">No state transitions recorded.</p> : <div className="timeline">{detail.timeline?.map((event, index) => <div className="timeline-row" key={`${event.at}-${event.action}`}><span className={`timeline-node ${index === (detail.timeline?.length ?? 1) - 1 ? "current" : ""}`} /><div><span className="timeline-date">{event.at.slice(0, 19).replace("T", "  ")}</span><strong>{event.action.replaceAll("_", " ")}</strong><p>{event.summary}</p></div></div>)}</div>}</section></div><div className="audit-footnote"><Ruler size={15} /><span>Run data, source excerpts, and hashes remain local. Export is a view of this boundary, not a replacement for it.</span></div></div>;
 }
 
 function Metric({ label, value, accent }: { label: string; value: string; accent?: "cyan" }) {

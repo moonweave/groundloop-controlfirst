@@ -319,8 +319,7 @@ class RunStore:
         if len(methods.strip()) < 20 or len(methods) > 20_000:
             raise ValueError("methods must contain 20–20,000 characters")
         methods_path = run / "inputs" / "methods.md"
-        if not methods_path.is_file() or len(methods_path.read_text(encoding="utf-8").strip()) < 20:
-            methods_path.write_text(methods, encoding="utf-8")
+        methods_path.write_text(methods, encoding="utf-8")
         return self.get_summary(run_id)
 
     def record_source_reviews(
@@ -860,6 +859,81 @@ class RunStore:
                     lines.append(f"  - Uncertainty: {finding.uncertainty}")
                 if finding.alternative_explanation:
                     lines.append(f"  - Alternative: {finding.alternative_explanation}")
+
+        convergence = report.convergence
+        if convergence:
+            lines.extend(
+                [
+                    "",
+                    "## Convergence Map",
+                    "",
+                    f"- Measurement method: {convergence.measurement_method}",
+                    f"- Freeze status: {convergence.freeze_status}",
+                    f"- Recorded at: {convergence.recorded_at}",
+                    "",
+                    "### Required signatures",
+                    "",
+                ]
+            )
+            for signature in convergence.signatures:
+                lines.extend(
+                    [
+                        f"- `{signature.id}` — **{signature.name}**",
+                        f"  - Requirement: {signature.requirement}",
+                        f"  - Expected observation: {signature.expected_observation}",
+                        f"  - Falsifying outcome: {signature.falsifying_outcome}",
+                        f"  - Theory evidence: {', '.join(signature.theory_evidence_ref_ids) or 'none recorded'}",
+                    ]
+                )
+            lines.extend(["", "### Signature alignments", ""])
+            for alignment in convergence.alignments:
+                lines.extend(
+                    [
+                        f"- `{alignment.signature_id}` — **{alignment.status}**",
+                        f"  - Rationale: {alignment.rationale}",
+                        f"  - Evidence: {', '.join(alignment.evidence_ref_ids) or 'none recorded'}",
+                    ]
+                )
+                if alignment.alternative_explanation:
+                    lines.append(f"  - Alternative explanation: {alignment.alternative_explanation}")
+                if alignment.missing_reason:
+                    lines.append(f"  - Missing reason: {alignment.missing_reason}")
+            lines.extend(["", "### Dominant gap", "", convergence.dominant_gap])
+
+            lines.extend(["", "### Source roles", ""])
+            if report.source_review:
+                for review in report.source_review.adjudications:
+                    role = review.role.replace("_", " ") if review.role else "unassigned"
+                    lines.extend(
+                        [
+                            f"- `{review.source_id}` — **{role}** ({review.verdict})",
+                            f"  - Rationale: {review.rationale}",
+                        ]
+                    )
+            else:
+                lines.append("- No semantic source roles were recorded.")
+
+            lines.extend(["", "### Control contract", ""])
+            control = convergence.control
+            if control:
+                lines.extend(
+                    [
+                        f"- Confound: {control.confound}",
+                        f"- Experiment: {control.experiment}",
+                        f"- Preconditions: {', '.join(control.preconditions)}",
+                        f"- Closes signatures: {', '.join(control.closes_signature_ids) or 'none recorded'}",
+                        f"- Leaves open signatures: {', '.join(control.leaves_open_signature_ids) or 'none recorded'}",
+                        f"- Signature references: {', '.join(control.signature_ref_ids) or 'none recorded'}",
+                        f"- Priority: {control.priority}",
+                        f"- Feasibility: {control.feasibility}",
+                        "- Outcomes:",
+                    ]
+                )
+                for outcome in control.outcomes:
+                    lines.append(f"  - If {outcome.if_}, then {outcome.then}")
+            else:
+                lines.append("- CONTROL PENDING — Codex has not committed a control contract.")
+
         lines.extend(["", "## ControlFirst", "", f"**Confound:** {report.control.confound}", "", report.control.experiment, "", "### Outcomes"])
         for outcome in report.control.outcomes:
             lines.append(f"- If {outcome.if_}, then {outcome.then}")
