@@ -306,7 +306,7 @@ function briefFor(detail: Detail) {
   const generic = detail.run.workflow === "generic_v2";
   const steps = detail.run.state === "DRAFT"
     ? [
-        generic ? "1. Call inspect_measurement_artifacts. Read the claim, method context, artifact profiles, and supplied literature, then call record_measurement_modality with authority='codex'. Header inference is advisory only. The researcher must confirm set_artifact_binding for every artifact and may keep the generic recipe." : "1. While this Run is DRAFT, call record_source_reviews once for every supplied source. Assign direct sources one role: theory_basis, method_limit, or discriminating_control.",
+        generic ? "1. Call inspect_measurement_artifacts. Read the claim, method context, artifact profiles, and supplied literature, then call record_measurement_modality with authority='codex'. Header inference is advisory only. The researcher must confirm set_artifact_binding for every artifact and may keep the generic capability pack." : "1. While this Run is DRAFT, call record_source_reviews once for every supplied source. Assign direct sources one role: theory_basis, method_limit, or discriminating_control.",
         generic ? "2. Record source reviews, then stop and ask the researcher to click FREEZE EVIDENCE. Do not freeze from Codex." : "2. Stop and ask the researcher to click FREEZE EVIDENCE in GroundLoop. Do not call create_evidence_packet before the researcher confirms the freeze.",
       ]
     : detail.run.state === "PACKET_READY"
@@ -405,7 +405,7 @@ function App() {
       });
       setDetail(next);
       setView("map");
-      setNotice("Generic Run profiled. Confirm the dataset binding and recipe with Codex before freezing evidence.");
+      setNotice("Generic Run profiled. Confirm artifact binding; capability packs guide evidence operations only.");
       await refreshRuns();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to create the Run.");
@@ -517,7 +517,7 @@ function Landing({
           <label className="field-label" htmlFor="claim">MECHANISM CLAIM <span>REQUIRED</span></label>
           <textarea id="claim" value={claim} onChange={(event) => setClaim(event.target.value)} className="claim-field" rows={4} />
           <div className="entry-grid">
-            <div><label className="field-label" htmlFor="method">MEASUREMENT FAMILY</label><div className="select-wrap"><select id="method" value="generic" onChange={() => undefined}><option value="generic">Generic tabular / recipe confirmed after profiling</option></select><ChevronDown size={16} /></div></div>
+            <div><label className="field-label" htmlFor="method">MEASUREMENT FAMILY</label><div className="select-wrap"><select id="method" value="generic" onChange={() => undefined}><option value="generic">Generic tabular / capability pack optional after profiling</option></select><ChevronDown size={16} /></div></div>
             <div><label className="field-label" htmlFor="method-notes">METHOD CONTEXT</label><input id="method-notes" value={methods} onChange={(event) => setMethods(event.target.value)} /></div>
           </div>
           <div className="upload-zone">
@@ -659,7 +659,7 @@ function BindingPanel({ detail, profile, artifact, onNotice, onRefresh }: { deta
       onNotice(`Binding blocked: ${caught instanceof Error ? caught.message : "check the selected columns."}`);
     }
   };
-  return <section className="binding-panel"><div><p className="kicker">RESEARCHER CONFIRMATION / DATA BINDING</p><h2>{artifact?.label ?? profile.artifact_id}: columns are not scientific roles until you confirm them.</h2>{codexProposed ? <p><strong>CODEX PROPOSAL / {proposal.replaceAll("_", " ")}</strong> · {routing?.reasons[0] ?? "Recorded from the Run context."} Confirm the primary axis and observable before the packet can freeze.</p> : <p><strong>CONTROL PENDING / NO CODEX MODALITY COMMITTED</strong> · GroundLoop's header signal is advisory only. Confirm this binding as generic, or ask Codex to read the method and literature before it proposes a recipe.</p>}</div><div className="binding-controls"><label><span>X / INDEPENDENT</span><select value={xColumnId} onChange={(event) => setXColumnId(event.target.value)}>{profile.columns.map((column) => <option value={column.column_id} key={column.column_id}>{column.name} · {column.unit.value ?? "unit unknown"}</option>)}</select></label><label><span>Y / OBSERVABLE</span><select value={yColumnId} onChange={(event) => setYColumnId(event.target.value)}>{numeric.map((column) => <option value={column.column_id} key={column.column_id}>{column.name} · {column.unit.value ?? "unit unknown"}</option>)}</select></label><button type="button" className="primary-button" onClick={() => void confirm()}>CONFIRM {codexProposed ? "PROPOSED" : "GENERIC"} BINDING <Check size={15} /></button></div></section>;
+  return <section className="binding-panel"><div><p className="kicker">RESEARCHER CONFIRMATION / DATA BINDING</p><h2>{artifact?.label ?? profile.artifact_id}: columns are not scientific roles until you confirm them.</h2>{codexProposed ? <p><strong>CODEX PROPOSAL / {proposal.replaceAll("_", " ")}</strong> · {routing?.reasons[0] ?? "Recorded from the Run context."} Confirm the primary axis and observable before the packet can freeze. This proposal does not constrain Codex's later signatures or controls.</p> : <p><strong>CONTROL PENDING / NO CODEX MODALITY COMMITTED</strong> · GroundLoop's header signal is advisory only. Confirm this binding as generic, or ask Codex to read the method and literature before it proposes optional capability metadata.</p>}</div><div className="binding-controls"><label><span>X / INDEPENDENT</span><select value={xColumnId} onChange={(event) => setXColumnId(event.target.value)}>{profile.columns.map((column) => <option value={column.column_id} key={column.column_id}>{column.name} · {column.unit.value ?? "unit unknown"}</option>)}</select></label><label><span>Y / OBSERVABLE</span><select value={yColumnId} onChange={(event) => setYColumnId(event.target.value)}>{numeric.map((column) => <option value={column.column_id} key={column.column_id}>{column.name} · {column.unit.value ?? "unit unknown"}</option>)}</select></label><button type="button" className="primary-button" onClick={() => void confirm()}>CONFIRM {codexProposed ? "PROPOSED" : "GENERIC"} BINDING <Check size={15} /></button></div></section>;
 }
 
 function GenericEvidenceDeck({ artifacts, profiles, bindings, evidence, method }: { artifacts: Artifact[]; profiles: GenericProfile[]; bindings: ArtifactBinding[]; evidence: Detail["data_evidence"]; method: string }) {

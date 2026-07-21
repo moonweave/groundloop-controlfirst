@@ -2,7 +2,7 @@
 
 GroundLoop is a local, Codex-native **evidence-bound research convergence workspace** for materials, electronics, and functional-device experiments. It connects a claim, frozen method context, bounded tabular measurement artifacts, reviewed literature, falsifiable signatures, reproducible data facts, and one smallest discriminating control.
 
-GroundLoop is deliberately not universal scientific AI. The v2 core accepts bounded UTF-8 CSV measurements with arbitrary headers, profiles them conservatively, requires a researcher-confirmed column binding and recipe choice, and permits only allowlisted deterministic evidence operations. Electrical transport R(T) remains the first method-aware recipe; generic spectrum, sweep, time-series, cyclic, grouped-comparison, and actuator routing are advisory configuration layers rather than unsupported scientific recipes. A separate local-only diagnostic accepts one Hioki SM7120 resistance-mode transient export; it reports V/R and a transparent OLS log–log check, not a mechanism conclusion.
+GroundLoop is deliberately not universal scientific AI. The v2 core accepts bounded UTF-8 CSV measurements with arbitrary headers, profiles them conservatively, requires researcher-confirmed column bindings, and permits only allowlisted deterministic evidence operations. Measurement capability packs guide deterministic operation and validation surfaces; they never limit Codex's signatures, alignments, controls, or scientific reasoning. Electrical transport R(T) remains the first method-aware capability pack. Generic spectrum, sweep, time-series, cyclic, grouped-comparison, and actuator routing are advisory configuration layers rather than claims of complete domain-specific packs. A separate local-only diagnostic accepts one Hioki SM7120 resistance-mode transient export; it reports V/R and a transparent OLS log–log check, not a mechanism conclusion.
 
 Every Convergence Map keeps four alignment states visibly separate:
 
@@ -92,8 +92,8 @@ The generic v2 path is the canonical research workflow:
 2. Add additional bounded CSV artifacts when the decision requires a separate control, spectrum, time series, lifetime, geometry, or grouped-comparison table. GroundLoop stores each artifact separately and never merges rows.
 3. GroundLoop profiles every artifact's columns, candidate units, missingness, sample rows, and SHA-256. Its header signal is advisory only. Codex reads the claim, method context, artifact profiles, and supplied literature, then records a reviewable modality proposal.
 3. Codex may search literature outside GroundLoop and import bounded candidates with provider, publication status, query, rationale, locator, and excerpt hash. GroundLoop never fetches the supplied URL or DOI; imported candidates remain unreviewed.
-4. The researcher confirms one X column, up to three Y columns, optional grouping/order, units, and either the matching Codex-proposed recipe or `generic` for every artifact.
-5. Codex semantically reviews every candidate by role. The researcher freezes the exact claim, method, artifact IDs, hashes, profiles, bindings, recipe, selected excerpts, and source provenance.
+4. The researcher confirms one X column, up to three Y columns, optional grouping/order, units, and an optional measurement capability pack for every artifact. `generic` is always valid.
+5. Codex semantically reviews every candidate by role. The researcher freezes the exact claim, method, artifact IDs, hashes, profiles, bindings, capability pack metadata, selected excerpts, and source provenance.
 6. Codex requests allowlisted operations such as `argmax`, `endpoint_delta`, `linear_fit`, `correlation`, or `monotonicity` against explicit artifact IDs. GroundLoop returns the only valid data-evidence IDs and calculated facts.
 7. Codex records signatures, alignments, one control, and an export. `Observed` and `Contradicted` require GroundLoop-materialized data evidence. `Confounded` also requires a named alternative plus method/source limit evidence.
 
@@ -119,7 +119,7 @@ fixture without rebuilding an experiment or supplying an API key:
    four-state alignments, commits one four-wire control contract, and exports the
    report. The UI updates the same Map automatically.
 
-The electrical transport fixture remains a complete deep recipe demo: a falling
+The electrical transport fixture remains a complete deep capability-pack demo: a falling
 two-wire resistance trace is observed, but its bulk mechanism is **not
 established** until the matched four-wire control is run. The generic spectrum
 fixture proves that the same evidence-bound workflow is not limited to R(T).
@@ -184,7 +184,7 @@ decision sheet / Markdown / JSON export
 The principal MCP contracts are:
 
 - `create_run`, `get_run`, `update_run` — Codex-first creation and shared Run access;
-- `create_generic_run`, `add_measurement_artifact`, `inspect_measurement_artifacts`, `inspect_dataset_profile`, `propose_measurement_modality`, `set_dataset_binding`, `set_artifact_binding` — v2 generic intake and researcher-confirmed measurement roles;
+- `create_generic_run`, `add_measurement_artifact`, `inspect_measurement_artifacts`, `inspect_dataset_profile`, `propose_measurement_modality`, `set_dataset_binding`, `set_artifact_binding` — v2 generic intake, researcher-confirmed measurement roles, and optional non-constraining capability pack metadata;
 - `record_source_reviews` — one semantic review and one explicit evidence role per source;
 - `import_literature_candidates` — import bounded Codex-discovered source candidates without URL fetching;
 - `create_evidence_packet` — read the packet only after the researcher freezes it in the UI;
@@ -198,7 +198,7 @@ Changing a frozen claim or method requires a successor Run rather than mutating
 the frozen packet.
 
 For the submission recording, open with the generic spectrum evidence path and
-then show the transport recipe as proof of method-aware depth. See
+then show the transport capability pack as proof of method-aware depth. See
 [docs/generic-evidence-v2.md](docs/generic-evidence-v2.md) for the v2 contract.
 
 ## Additional local transient check

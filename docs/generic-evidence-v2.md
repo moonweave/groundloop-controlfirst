@@ -8,7 +8,7 @@ that every scientific file format or measurement modality is supported.
 claim + method + CSV + source candidates
   → profile + advisory header signal
   → Codex literature candidates + modality proposal
-  → researcher-confirmed binding and recipe
+  → researcher-confirmed binding and optional capability pack
   → semantic source roles + human freeze
   → GroundLoop-materialized data facts
   → signatures + four-state alignments
@@ -21,7 +21,7 @@ claim + method + CSV + source candidates
 | Action | Codex | GroundLoop | Researcher |
 |---|---:|---:|---:|
 | Search/import literature | searches outside GroundLoop and imports bounded candidates | validates provenance and stores candidates | reviews source roles |
-| Propose modality / recipe | proposes from claim, methods, sources, and profile | stores and exposes only an advisory header signal | confirms or keeps generic |
+| Propose modality / capability pack | proposes from claim, methods, sources, and profile | stores and exposes only an advisory header signal | confirms bindings; may keep generic |
 | Assign column roles and units | proposes | validates | confirms |
 | Calculate numeric fact | requests | executes | reviews |
 | Freeze evidence | no | no | yes |
@@ -79,16 +79,17 @@ own artifact ID and hash.
   `CONTRADICTED_BY_CURRENT_EVIDENCE`; any Confounded/Missing →
   `NOT_ESTABLISHED`; all Observed → `SUPPORTED_WITHIN_FROZEN_BOUNDARY`.
 
-## Recipes
+## Measurement capability packs
 
-Recipes are optional, versioned guidance layers over the generic engine. They
-do not decide the scientific modality: Codex must first record a proposal from
-the claim, methods, supplied sources, and CSV profile, then the researcher must
-confirm the matching recipe. A researcher may always retain `generic`. Recipes
-can suggest column roles, common limitations, confounds, and visualizations,
-but cannot bypass validation or create scientific facts.
-`electrical_transport_rt` is the first preserved deep recipe. The generic
-spectrum fixture deliberately does not claim a full Raman, PL, or XRD recipe.
+Capability packs are optional, versioned guidance layers over the generic
+engine. They do not decide the scientific modality and must not limit Codex's
+signatures, alignments, controls, or scientific reasoning. A researcher may
+always retain `generic`. Packs can suggest column roles, common limitations,
+confounds, deterministic operations, and visualizations, but cannot bypass
+validation, create scientific facts, or make a conclusion.
+`electrical_transport_rt` is the first preserved deep capability pack. The
+generic spectrum fixture deliberately does not claim a full Raman, PL, or XRD
+pack.
 
 ## Demonstrations
 

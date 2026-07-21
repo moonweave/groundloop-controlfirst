@@ -63,12 +63,13 @@ def test_generic_mcp_profile_binding_and_materialized_fact(tmp_path: Path, monke
     )
     assert imported["ok"] is True
     assert any(item["retrieval_provider"] == "crossref" for item in imported["result"]["draft"]["sources"])
-    rejected = mcp_main.set_dataset_binding(
+    capability_pack = mcp_main.set_dataset_binding(
         run_id,
         DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_units={"col-001": "nm", "col-002": "counts"}, confirmed_at="2026-07-21T00:00:00+00:00"),
         "generic_spectrum",
     )
-    assert rejected["ok"] is False
+    assert capability_pack["ok"] is True
+    assert capability_pack["result"]["bindings"][0]["artifact_id"] == "artifact-001"
     routed = mcp_main.record_measurement_modality(
         run_id,
         MeasurementModalityProposal(

@@ -407,12 +407,12 @@ def test_generic_dataset_update_reprofiles_and_requires_rebinding(tmp_path: Path
         [_source()],
     )
     run_id = detail["run"]["run_id"]
-    with pytest.raises(ValueError, match="Codex-authored"):
-        store.set_dataset_binding(
-            run_id,
-            DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_at="2026-07-21T00:00:00+00:00"),
-            "generic_spectrum",
-        )
+    binding_result = store.set_dataset_binding(
+        run_id,
+        DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_at="2026-07-21T00:00:00+00:00"),
+        "generic_spectrum",
+    )
+    assert binding_result["bindings"][0]["artifact_id"] == "artifact-001"
     store.record_measurement_modality(run_id, _codex_spectrum_proposal())
     store.set_dataset_binding(
         run_id,
@@ -422,18 +422,75 @@ def test_generic_dataset_update_reprofiles_and_requires_rebinding(tmp_path: Path
     store.record_source_reviews(run_id, [SourceAdjudication(source_id="src-spectrum-limit", verdict="direct", role="method_limit", rationale="The supplied excerpt limits mechanism assignment.")])
     store.update_claim(run_id, ClaimInput(claim="A feature near 620 nm distinguishes the proposed emissive mechanism."))
     assert store.get_detail(run_id)["draft"]["modality_proposal"]["authority"] == "groundloop_heuristic"
-    with pytest.raises(ValueError, match="stale or missing Codex"):
-        store.prepare_packet(run_id)
+    store.prepare_packet(run_id)
+    with pytest.raises(ValueError, match="DRAFT"):
+        store.update_dataset(run_id, b"time_s,displacement_mm\n0,0\n1,1.2\n")
+
+
+def test_capability_pack_mismatch_does_not_constrain_codex_reasoning(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    detail = store.create_generic_run(
+        ClaimInput(claim="A tabular response has an identifiable signature."),
+        "A bounded local tabular measurement was exported with method context sufficient for later review.",
+        SPECTRUM,
+        [_source()],
+    )
+    run_id = detail["run"]["run_id"]
+    store.record_measurement_modality(
+        run_id,
+        MeasurementModalityProposal(candidate="generic_sweep", confidence="low", reasons=["Codex kept the routing broad because the mechanism comparison is not recipe-bound."], authority="codex"),
+    )
+    store.set_dataset_binding(
+        run_id,
+        DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_at="2026-07-21T00:00:00+00:00"),
+        "generic_spectrum",
+    )
+    store.record_source_reviews(run_id, [SourceAdjudication(source_id="src-spectrum-limit", verdict="direct", role="method_limit", rationale="The supplied excerpt limits mechanism assignment.")])
+    store.prepare_packet(run_id)
+    packet = store.get_packet(run_id)
+    assert packet["recipe"]["kind"] == "measurement_capability_pack"
+    assert packet["recipe"]["id"] == "generic_spectrum"
+    assert packet["recipe"]["routing_candidate"] == "generic_sweep"
+    assert packet["recipe"]["routing_match_required"] is False
+    store.inspect_sources(run_id, [{"expected_observation": "assignment is limited", "condition": "source excerpt is frozen", "falsifier": "excerpt does not describe a limitation", "evidence_ref_ids": ["src-spectrum-limit:evidence"]}])
+    store.analyze_dataset(run_id)
+    evidence = store.materialize_data_evidence(run_id, "argmax", ["col-001", "col-002"], 2, 6)
+    store.record_signatures(
+        run_id,
+        [
+            RequiredSignature(id="signature-feature", name="Feature", requirement="A feature is present.", expected_observation="A peak exists.", falsifying_outcome="No peak exists."),
+            RequiredSignature(id="signature-specificity", name="Specificity", requirement="The mechanism is distinguishable.", expected_observation="A discriminator exists.", falsifying_outcome="No discriminator exists."),
+        ],
+    )
+    store.record_alignments(
+        run_id,
+        [
+            AlignmentAdjudication(signature_id="signature-feature", status="Observed", rationale="Codex can still cite the materialized data fact.", evidence_ref_ids=[evidence["evidence_id"]]),
+            AlignmentAdjudication(signature_id="signature-specificity", status="Missing", rationale="The capability pack does not supply a scientific discriminator.", missing_reason="not_measured"),
+        ],
+    )
+
+
+def test_generic_dataset_update_reprofiles_and_requires_rebinding_after_artifact_change(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    detail = store.create_generic_run(
+        ClaimInput(claim="A tabular response has an identifiable signature."),
+        "A bounded local tabular measurement was exported with method context sufficient for later review.",
+        SPECTRUM,
+        [_source()],
+    )
+    run_id = detail["run"]["run_id"]
+    store.record_measurement_modality(run_id, _codex_spectrum_proposal())
+    store.set_dataset_binding(
+        run_id,
+        DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_at="2026-07-21T00:00:00+00:00"),
+        "generic_spectrum",
+    )
+    store.record_source_reviews(run_id, [SourceAdjudication(source_id="src-spectrum-limit", verdict="direct", role="method_limit", rationale="The supplied excerpt limits mechanism assignment.")])
     updated = store.update_dataset(run_id, b"time_s,displacement_mm\n0,0\n1,1.2\n")
     assert updated["dataset_profile"]["columns"][0]["name"] == "time_s"
     assert store.get_detail(run_id)["draft"]["dataset_binding"] is None
     assert store.get_detail(run_id)["draft"]["modality_proposal"]["authority"] == "groundloop_heuristic"
-    with pytest.raises(ValueError, match="Codex-authored"):
-        store.set_dataset_binding(
-            run_id,
-            DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_at="2026-07-21T00:00:00+00:00"),
-            "generic_spectrum",
-        )
     with pytest.raises(ValueError, match="reconfirm"):
         store.prepare_packet(run_id)
 

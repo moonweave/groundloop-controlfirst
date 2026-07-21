@@ -58,7 +58,7 @@ def create_run(
     )
 
 
-@mcp.tool(description=f"Create a domain-neutral GroundLoop v2 Run from one bounded UTF-8 CSV. Pass inline CSV content only. GroundLoop profiles columns but does not select scientific meaning or a recipe. After reading the claim, method context, and supplied literature, record_measurement_modality; then wait for the researcher-confirmed binding before freezing. {GUIDANCE}")
+@mcp.tool(description=f"Create a domain-neutral GroundLoop v2 Run from one bounded UTF-8 CSV. Pass inline CSV content only. GroundLoop profiles columns but does not select scientific meaning. Measurement capability packs are deterministic operation guidance only, never Codex reasoning limits. {GUIDANCE}")
 def create_generic_run(
     claim: str,
     methods: str,
@@ -96,22 +96,22 @@ def inspect_measurement_artifacts(run_id: str) -> dict[str, Any]:
     return _result(lambda: store.inspect_measurement_artifacts(run_id))
 
 
-@mcp.tool(description=f"Recompute only GroundLoop's advisory header/method heuristic. It is not scientific routing, cannot activate a recipe, and must not replace reading the supplied literature and method context. {GUIDANCE}")
+@mcp.tool(description=f"Recompute only GroundLoop's advisory header/method heuristic. It is not scientific routing, cannot activate a conclusion, and must not replace reading the supplied literature and method context. {GUIDANCE}")
 def propose_measurement_modality(run_id: str) -> dict[str, Any]:
     return _result(lambda: store.propose_measurement_modality(run_id))
 
 
-@mcp.tool(description=f"Record Codex's proposed measurement modality after reasoning over the claim, method context, bounded CSV profile, and supplied literature. Set authority='codex'. This records a reviewable proposal only: it cannot confirm columns or activate a recipe. {GUIDANCE}")
+@mcp.tool(description=f"Record Codex's proposed measurement modality after reasoning over the claim, method context, bounded CSV profile, and supplied literature. Set authority='codex'. This records a reviewable proposal only: it cannot confirm columns, constrain signatures, or activate a scientific conclusion. {GUIDANCE}")
 def record_measurement_modality(run_id: str, proposal: MeasurementModalityProposal) -> dict[str, Any]:
     return _result(lambda: store.record_measurement_modality(run_id, proposal))
 
 
-@mcp.tool(description=f"Persist a researcher-confirmed v2 column binding and optional recipe. Use only column IDs returned by inspect_dataset_profile. A non-generic recipe must match a current Codex-authored modality proposal; generic remains always available. {GUIDANCE}")
+@mcp.tool(description=f"Persist a researcher-confirmed v2 column binding and optional measurement capability pack. Use only column IDs returned by inspect_dataset_profile. Capability packs guide deterministic operations only; generic remains always available and Codex reasoning is not limited by pack choice. {GUIDANCE}")
 def set_dataset_binding(run_id: str, binding: DatasetBinding, recipe: str = "generic") -> dict[str, Any]:
     return _result(lambda: store.set_dataset_binding(run_id, binding, recipe))
 
 
-@mcp.tool(description=f"Persist a researcher-confirmed binding for one measurement artifact. Each artifact in a generic Run needs its own confirmed binding before freeze. {GUIDANCE}")
+@mcp.tool(description=f"Persist a researcher-confirmed binding for one measurement artifact and optional measurement capability pack. Each artifact in a generic Run needs its own confirmed binding before freeze; pack choice never limits Codex signatures, alignments, or controls. {GUIDANCE}")
 def set_artifact_binding(run_id: str, binding: DatasetBinding, recipe: str = "generic") -> dict[str, Any]:
     return _result(lambda: store.set_artifact_binding(run_id, binding, recipe))
 
