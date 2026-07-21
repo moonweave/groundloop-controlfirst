@@ -1767,9 +1767,10 @@ class RunStore:
         control = convergence.control
         lines.extend(["", "## Control contract", ""])
         if control:
-            lines.extend([f"- Confound: {control.confound}", f"- Primary experiment: {control.experiment}", f"- Fixed conditions: {', '.join(control.preconditions)}", f"- Closes signatures: {', '.join(control.closes_signature_ids)}", f"- Leaves open signatures: {', '.join(control.leaves_open_signature_ids)}", "- Outcomes:"])
+            lines.extend([f"- Confound: {control.confound}", f"- Primary experiment: {control.experiment}", f"- Fixed conditions: {', '.join(control.preconditions)}", f"- Closes signatures: {', '.join(control.closes_signature_ids)}", f"- Leaves open signatures: {', '.join(control.leaves_open_signature_ids)}"])
             if control.required_artifact_labels:
                 lines.append(f"- Required follow-up artifacts: {', '.join(control.required_artifact_labels)}")
+            lines.append("- Outcomes:")
             lines.extend([f"  - If {outcome.if_}, then {outcome.then}" for outcome in control.outcomes])
         return "\n".join(lines) + "\n"
 

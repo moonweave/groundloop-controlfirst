@@ -144,6 +144,7 @@ def test_generic_spectrum_run_materializes_evidence_and_exports(tmp_path: Path) 
             signature_ref_ids=["signature-assignment"],
             closes_signature_ids=["signature-assignment"],
             leaves_open_signature_ids=["signature-specificity"],
+            required_artifact_labels=["temperature series"],
             priority="high",
             feasibility="One matched temperature series.",
         ),
@@ -156,6 +157,7 @@ def test_generic_spectrum_run_materializes_evidence_and_exports(tmp_path: Path) 
     assert "Materialized data evidence" in markdown
     assert "Literature provenance" in markdown
     assert "Excerpt SHA-256" in markdown
+    assert markdown.index("- Required follow-up artifacts:") < markdown.index("- Outcomes:")
     assert "two-wire" not in markdown.lower()
     assert "resistance" not in markdown.lower()
 
