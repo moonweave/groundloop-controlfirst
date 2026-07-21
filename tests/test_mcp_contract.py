@@ -64,6 +64,10 @@ def test_generic_mcp_profile_binding_and_materialized_fact(tmp_path: Path, monke
     )
     assert imported["ok"] is True
     assert any(item["retrieval_provider"] == "crossref" for item in imported["result"]["draft"]["sources"])
+    inspected_candidates = mcp_main.inspect_retrieved_sources(run_id)
+    assert inspected_candidates["ok"] is True
+    assert inspected_candidates["result"]["retrieval_review"]["status"] == "required"
+    assert {item["id"] for item in inspected_candidates["result"]["candidate_sources"]} == {"src-limit", "src-imported"}
     capability_pack = mcp_main.set_dataset_binding(
         run_id,
         DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_units={"col-001": "nm", "col-002": "counts"}, confirmed_at="2026-07-21T00:00:00+00:00"),
@@ -149,6 +153,23 @@ def test_generic_mcp_records_source_free_provisional_reasoning(tmp_path: Path, m
     provisional = recorded["result"]["draft"]["provisional_reasoning"]
     assert provisional["evidence_status"] == "not_evidence"
     assert provisional["reasoning"]["proposed_data_operations"][0]["materialization_status"] == "not_materialized"
+
+
+def test_generic_mcp_source_inspection_rejects_source_free_run(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(mcp_main, "store", RunStore(tmp_path / "runs"))
+    created = mcp_main.create_generic_run(
+        claim="An ambiguous response demonstrates a mechanism.",
+        methods="The bounded table has no reviewed literature candidates yet and its column roles are still uncertain.",
+        dataset_csv="x,y\n0,1\n1,2\n",
+        sources=[],
+    )
+    assert created["ok"] is True
+    run_id = created["result"]["run"]["run_id"]
+
+    inspected = mcp_main.inspect_retrieved_sources(run_id)
+
+    assert inspected["ok"] is False
+    assert "no automatically retrieved source candidates" in inspected["error"]["message"]
 
 
 def test_generic_mcp_multi_artifact_contract(tmp_path: Path, monkeypatch) -> None:

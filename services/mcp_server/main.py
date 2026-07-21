@@ -19,6 +19,7 @@ from packages.core.models import (
     SourceAdjudication,
     SourceInput,
 )
+from packages.core.analysis import source_refs, screen_source_relevance
 from packages.core.store import RunStore
 
 
@@ -155,6 +156,26 @@ def explore_evidence(run_id: str) -> dict[str, Any]:
 @mcp.tool(description=f"Return every automatically retrieved candidate source for semantic review before it can enter an evidence packet. Read each supplied title, excerpt, locator, and provider status. The lexical screen only prioritizes reading; it is never source support. arXiv candidates are preprints, not peer-reviewed consensus. {GUIDANCE}")
 def inspect_retrieved_sources(run_id: str) -> dict[str, Any]:
     def operation() -> dict[str, Any]:
+        if store.get_summary(run_id).workflow == "generic_v2":
+            detail = store.get_detail(run_id)
+            draft = detail["draft"]
+            sources = [SourceInput.model_validate(item) for item in draft["sources"]]
+            review = draft.get("retrieval_review")
+            if not review or not sources:
+                raise ValueError("this run has no automatically retrieved source candidates to adjudicate")
+            if review["status"] == "completed":
+                raise ValueError("retrieved sources were already adjudicated; create the evidence packet next")
+            claim = ClaimInput.model_validate(draft["claim"])
+            return {
+                "claim": draft["claim"],
+                "candidate_sources": draft["sources"],
+                "source_relevance": [
+                    item.model_dump(mode="json")
+                    for item in screen_source_relevance(claim, sources)
+                ],
+                "retrieval_review": review,
+                "evidence_refs": [item.model_dump(mode="json") for item in source_refs(sources)],
+            }
         draft = store.explore_draft(run_id)
         review = draft.get("retrieval_review")
         if not review:
