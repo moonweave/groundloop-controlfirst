@@ -287,6 +287,12 @@ a { color: inherit; }
 .toast button { margin-left: 6px; border: 0; background: transparent; color: var(--muted); font-size: 18px; line-height: 1; }
 
 .generic-data-bay { display: grid; gap: 12px; align-content: start; }
+.artifact-ledger { border-top: 1px solid var(--line); }
+.artifact-ledger > div { display: grid; grid-template-columns: 1fr 1.1fr .55fr .85fr .75fr; gap: 10px; border-bottom: 1px solid var(--line); padding: 9px 0; color: var(--muted); font: 10px/1.35 var(--mono); }
+.artifact-ledger span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artifact-ledger span:first-child { color: var(--ink); }
+.artifact-ledger .bound { color: var(--green); }
+.artifact-ledger .unbound { color: var(--amber); }
 .generic-column-table { border-top: 1px solid var(--line); }
 .generic-column-table > div { display: grid; grid-template-columns: 1.4fr .75fr 1fr .8fr; gap: 10px; border-bottom: 1px solid var(--line); padding: 9px 0; color: var(--muted); font: 11px/1.35 var(--mono); }
 .generic-column-table > div span:first-child { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

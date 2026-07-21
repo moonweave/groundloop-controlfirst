@@ -79,6 +79,23 @@ def import_literature_candidates(run_id: str, candidates: list[LiteratureCandida
     return _result(lambda: store.import_literature_candidates(run_id, candidates))
 
 
+@mcp.tool(description=f"Attach another bounded UTF-8 CSV measurement artifact to an editable generic Run. Pass inline CSV content only; GroundLoop preserves this artifact separately and never merges rows with another artifact. {GUIDANCE}")
+def add_measurement_artifact(
+    run_id: str,
+    artifact_id: str,
+    dataset_csv: str,
+    filename: str = "dataset.csv",
+    provenance: str = "USER_MEASUREMENT",
+    label: str | None = None,
+) -> dict[str, Any]:
+    return _result(lambda: store.add_measurement_artifact(run_id, dataset_csv.encode("utf-8"), artifact_id=artifact_id, filename=filename, provenance=provenance, label=label))
+
+
+@mcp.tool(description=f"Return every generic measurement artifact, profile, hash, and binding status. Profiles orient Codex but are not scientific conclusions. {GUIDANCE}")
+def inspect_measurement_artifacts(run_id: str) -> dict[str, Any]:
+    return _result(lambda: store.inspect_measurement_artifacts(run_id))
+
+
 @mcp.tool(description=f"Recompute only GroundLoop's advisory header/method heuristic. It is not scientific routing, cannot activate a recipe, and must not replace reading the supplied literature and method context. {GUIDANCE}")
 def propose_measurement_modality(run_id: str) -> dict[str, Any]:
     return _result(lambda: store.propose_measurement_modality(run_id))
@@ -92,6 +109,11 @@ def record_measurement_modality(run_id: str, proposal: MeasurementModalityPropos
 @mcp.tool(description=f"Persist a researcher-confirmed v2 column binding and optional recipe. Use only column IDs returned by inspect_dataset_profile. A non-generic recipe must match a current Codex-authored modality proposal; generic remains always available. {GUIDANCE}")
 def set_dataset_binding(run_id: str, binding: DatasetBinding, recipe: str = "generic") -> dict[str, Any]:
     return _result(lambda: store.set_dataset_binding(run_id, binding, recipe))
+
+
+@mcp.tool(description=f"Persist a researcher-confirmed binding for one measurement artifact. Each artifact in a generic Run needs its own confirmed binding before freeze. {GUIDANCE}")
+def set_artifact_binding(run_id: str, binding: DatasetBinding, recipe: str = "generic") -> dict[str, Any]:
+    return _result(lambda: store.set_artifact_binding(run_id, binding, recipe))
 
 
 @mcp.tool(description=f"Return the complete shared Run snapshot, including its current Convergence Map projection and audit timeline. {GUIDANCE}")
@@ -217,7 +239,15 @@ def analyze_dataset(run_id: str) -> dict[str, Any]:
         packet = store.get_packet(run_id)
         store.analyze_dataset(run_id)
         if packet.get("schema_version") == 2:
-            return {"dataset_profile": packet["dataset_profile"], "dataset_binding": packet["dataset_binding"], "recipe": packet["recipe"], "evidence_refs": packet["evidence_refs"]}
+            return {
+                "dataset_profile": packet["dataset_profile"],
+                "dataset_binding": packet["dataset_binding"],
+                "artifacts": packet.get("artifacts", [packet["artifact"]]),
+                "dataset_profiles": packet.get("dataset_profiles", [packet["dataset_profile"]]),
+                "artifact_bindings": packet.get("artifact_bindings", [packet["dataset_binding"]]),
+                "recipe": packet["recipe"],
+                "evidence_refs": packet["evidence_refs"],
+            }
         return {"dataset": packet["dataset"], "evidence_refs": [item for item in packet["evidence_refs"] if item["kind"] == "data"]}
     return _result(operation)
 
@@ -230,8 +260,9 @@ def materialize_data_evidence(
     row_start: int,
     row_end: int,
     parameters: dict[str, Any] | None = None,
+    artifact_id: str = "artifact-001",
 ) -> dict[str, Any]:
-    return _result(lambda: store.materialize_data_evidence(run_id, operation, selected_columns, row_start, row_end, parameters))
+    return _result(lambda: store.materialize_data_evidence(run_id, operation, selected_columns, row_start, row_end, parameters, artifact_id))
 
 
 @mcp.tool(description=f"Persist Codex's 2–5 required mechanism signatures. Each signature must cite only evidence IDs returned by GroundLoop. {GUIDANCE}")

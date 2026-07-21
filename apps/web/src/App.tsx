@@ -113,6 +113,7 @@ type Control = {
   closes_signature_ids?: string[];
   leaves_open_signature_ids?: string[];
   signature_ref_ids?: string[];
+  required_artifact_labels?: string[];
 };
 type ConvergenceMap = {
   claim: string;
@@ -159,11 +160,14 @@ type Detail = {
     dataset?: Dataset | null;
     dataset_evidence_ref?: EvidenceRef;
     dataset_provenance?: string;
-    artifact?: { filename: string; sha256: string };
+    artifact?: Artifact;
+    artifacts?: Artifact[];
     dataset_profile?: GenericProfile;
+    dataset_profiles?: GenericProfile[];
     modality_proposal?: { candidate: string; confidence: string; reasons: string[]; alternatives: string[]; authority: "codex" | "groundloop_heuristic"; recorded_at?: string | null };
     heuristic_modality_signal?: { candidate: string; confidence: string; reasons: string[]; alternatives: string[] };
     dataset_binding?: { x_column_id: string; y_column_ids: string[] } | null;
+    artifact_bindings?: ArtifactBinding[];
     recipe?: { id: string; version: string } | null;
     retrieval_review?: {
       provider: string;
@@ -180,8 +184,11 @@ type Detail = {
     candidate_review?: SourceReview;
     methods: string;
     dataset?: Dataset;
+    artifacts?: Artifact[];
     dataset_profile?: GenericProfile;
+    dataset_profiles?: GenericProfile[];
     dataset_binding?: { x_column_id: string; y_column_ids: string[] };
+    artifact_bindings?: ArtifactBinding[];
     recipe?: { id: string; version: string };
     dataset_provenance?: string;
     evidence_refs: EvidenceRef[];
@@ -189,10 +196,24 @@ type Detail = {
   };
   convergence?: ConvergenceMap;
   report?: Report;
-  data_evidence?: { evidence_id: string; operation: string; fact_text: string; selected_columns: string[]; row_start: number; row_end: number }[];
+  data_evidence?: { evidence_id: string; artifact_id: string; operation: string; fact_text: string; selected_columns: string[]; row_start: number; row_end: number }[];
 };
 
+type Artifact = {
+  artifact_id: string;
+  filename: string;
+  label?: string | null;
+  sha256: string;
+  byte_count: number;
+  provenance: string;
+};
+type ArtifactBinding = {
+  artifact_id: string;
+  x_column_id: string;
+  y_column_ids: string[];
+};
 type GenericProfile = {
+  artifact_id: string;
   row_count: number;
   column_count: number;
   columns: { column_id: string; name: string; inferred_type: string; unit: { value?: string; status: string }; missing_count: number }[];
@@ -266,13 +287,26 @@ function genericProfileFrom(detail: Detail): GenericProfile | undefined {
   return detail.draft?.dataset_profile ?? detail.packet?.dataset_profile;
 }
 
+function artifactsFrom(detail: Detail): Artifact[] {
+  return detail.draft?.artifacts ?? detail.packet?.artifacts ?? (detail.draft?.artifact ? [detail.draft.artifact] : []);
+}
+
+function genericProfilesFrom(detail: Detail): GenericProfile[] {
+  return detail.draft?.dataset_profiles ?? detail.packet?.dataset_profiles ?? (genericProfileFrom(detail) ? [genericProfileFrom(detail)!] : []);
+}
+
+function artifactBindingsFrom(detail: Detail): ArtifactBinding[] {
+  const fallback = detail.draft?.dataset_binding ?? detail.packet?.dataset_binding;
+  return detail.draft?.artifact_bindings ?? detail.packet?.artifact_bindings ?? (fallback ? [{ artifact_id: "artifact-001", x_column_id: fallback.x_column_id, y_column_ids: fallback.y_column_ids }] : []);
+}
+
 function briefFor(detail: Detail) {
   const claim = detail.convergence?.claim ?? detail.draft?.claim?.claim ?? detail.packet?.claim.claim ?? "";
   const method = detail.convergence?.measurement_method ?? detail.packet?.methods ?? detail.draft?.methods ?? "";
   const generic = detail.run.workflow === "generic_v2";
   const steps = detail.run.state === "DRAFT"
     ? [
-        generic ? "1. Call inspect_dataset_profile. Read the claim, method context, and supplied literature, then call record_measurement_modality with authority='codex'. Header inference is advisory only. The researcher must confirm set_dataset_binding and may keep the generic recipe." : "1. While this Run is DRAFT, call record_source_reviews once for every supplied source. Assign direct sources one role: theory_basis, method_limit, or discriminating_control.",
+        generic ? "1. Call inspect_measurement_artifacts. Read the claim, method context, artifact profiles, and supplied literature, then call record_measurement_modality with authority='codex'. Header inference is advisory only. The researcher must confirm set_artifact_binding for every artifact and may keep the generic recipe." : "1. While this Run is DRAFT, call record_source_reviews once for every supplied source. Assign direct sources one role: theory_basis, method_limit, or discriminating_control.",
         generic ? "2. Record source reviews, then stop and ask the researcher to click FREEZE EVIDENCE. Do not freeze from Codex." : "2. Stop and ask the researcher to click FREEZE EVIDENCE in GroundLoop. Do not call create_evidence_packet before the researcher confirms the freeze.",
       ]
     : detail.run.state === "PACKET_READY"
@@ -545,8 +579,11 @@ function MapScreen({ detail, onNotice, onFreeze, onRefresh }: { detail: Detail; 
   const map = detail.convergence;
   const dataset = datasetFrom(detail);
   const genericProfile = genericProfileFrom(detail);
+  const genericProfiles = genericProfilesFrom(detail);
+  const artifacts = artifactsFrom(detail);
   const genericEvidence = detail.data_evidence ?? [];
-  const genericBinding = detail.draft?.dataset_binding;
+  const genericBindings = artifactBindingsFrom(detail);
+  const unboundProfile = genericProfiles.find((profile) => !genericBindings.some((binding) => binding.artifact_id === profile.artifact_id));
   const [selectedId, setSelectedId] = useState(map?.signatures[0]?.id ?? "signature-response");
   const [copied, setCopied] = useState(false);
   const selected = map?.signatures.find((item) => item.id === selectedId);
@@ -586,12 +623,12 @@ function MapScreen({ detail, onNotice, onFreeze, onRefresh }: { detail: Detail; 
   return (
     <div className="map-page">
       <div className="map-toolbar"><div><p className="kicker">PRIMARY INSTRUMENT / CLAIM ↔ MEASUREMENT</p><p className="toolbar-caption">The map keeps the scientific question visible while Codex works the evidence.</p></div><div className="toolbar-actions">{detail.run.state === "DRAFT" && <button type="button" className="outline-button" onClick={() => void onFreeze()}><LockKeyhole size={14} /> FREEZE EVIDENCE</button>}<span className={`draft-chip ${map.freeze_status === "FROZEN" ? "frozen" : ""}`}>{map.freeze_status === "FROZEN" ? <LockKeyhole size={13} /> : <Activity size={13} />}{map.freeze_status === "FROZEN" ? "MAP FROZEN" : "DRAFT ALIGNMENT"}</span><button type="button" className="outline-button" onClick={() => void copyBrief()}><Clipboard size={14} />{copied ? " COPIED" : " COPY CODEX BRIEF"}</button></div></div>
-      {detail.run.workflow === "generic_v2" && detail.run.state === "DRAFT" && genericProfile && !genericBinding && <BindingPanel detail={detail} profile={genericProfile} onNotice={onNotice} onRefresh={onRefresh} />}
+      {detail.run.workflow === "generic_v2" && detail.run.state === "DRAFT" && unboundProfile && <BindingPanel detail={detail} profile={unboundProfile} artifact={artifacts.find((item) => item.artifact_id === unboundProfile.artifact_id)} onNotice={onNotice} onRefresh={onRefresh} />}
       <div className="instrument-grid">
         <section className="map-instrument" aria-label="Convergence Map">
           <div className="theory-band"><div className="band-topline"><span><span className="signal-mark" />TOP-DOWN / WHAT THE MECHANISM MUST EXPLAIN</span><span>01 / CLAIM DECOMPOSITION</span></div><h1>{map.claim}</h1><div className="signature-grid">{map.signatures.map((signature, index) => <button type="button" key={signature.id} className={`signature-cell ${selectedId === signature.id ? "selected" : ""}`} onClick={() => setSelectedId(signature.id)}><span className="signature-index">S{String(index + 1).padStart(2, "0")}</span><strong>{signature.name}</strong><span>{signature.requirement}</span></button>)}</div></div>
           <div className="alignment-field"><div className="field-caption"><span>ALIGNMENT FIELD</span><span>THEORY → METHOD → EVIDENCE</span></div><div className="alignment-grid">{map.signatures.map((signature) => { const alignment = map.alignments.find((item) => item.signature_id === signature.id); return <button type="button" key={signature.id} className={`alignment-lane ${alignment ? statusClass(alignment.status) : "status-missing"} ${selectedId === signature.id ? "selected" : ""}`} onClick={() => setSelectedId(signature.id)}><span className="alignment-wire" /><span className="alignment-node">{alignment?.status === "Observed" ? <Check size={14} /> : alignment?.status === "Contradicted" ? "×" : alignment?.status === "Confounded" ? "∥" : "○"}</span><span className="alignment-status">{statusLabel(alignment?.status ?? "Missing")}</span><span className="alignment-note">{alignment?.status === "Observed" ? "directly supported" : alignment?.status === "Confounded" ? "alternative remains viable" : alignment?.status === "Contradicted" ? "prediction not met" : "not in this measurement"}</span></button>; })}</div></div>
-          <div className="evidence-band"><div className="band-topline light"><span><span className="trace-mark" />BOTTOM-UP / WHAT THIS MEASUREMENT ACTUALLY SHOWS</span><span>{genericProfile ? `${genericProfile.row_count} ROWS / ${genericProfile.column_count} COLUMNS` : dataset ? `${dataset.row_count} ROWS / DETERMINISTIC` : "DATA PENDING"}</span></div>{genericProfile ? <GenericEvidenceDeck profile={genericProfile} evidence={genericEvidence} method={map.measurement_method} /> : <><div className="evidence-layout"><div className="trace-wrap">{rows.length ? <TraceChart rows={rows} /> : <div className="trace-empty"><FileUp size={18} /><span>Upload a UTF-8 CSV to render the raw trace.</span></div>}</div><div className="measurement-boundary"><div className="boundary-code"><span>METHOD /</span><strong>{methodLabel(map.measurement_method)}</strong></div><div className="boundary-row"><span>MEASURES</span><strong>TOTAL LOOP RESISTANCE</strong></div><div className="boundary-row"><span>CANNOT DISTINGUISH</span><strong>SAMPLE <i>vs</i> CONTACT + LEAD</strong></div><div className="equation">R<sub>2W</sub> = R<sub>s</sub> + R<sub>c</sub> + R<sub>lead</sub></div></div></div>{dataset && <div className="metric-strip"><Metric label="TEMPERATURE" value={`${formatNumber(dataset.temperature_range_c[0], 0)}–${formatNumber(dataset.temperature_range_c[1], 0)} °C`} /><Metric label="RESISTANCE" value={`${formatNumber(dataset.first_resistance_ohm)} → ${formatNumber(dataset.last_resistance_ohm)} Ω`} /><Metric label="CHANGE" value={`${change >= 0 ? "+" : ""}${formatNumber(change)}%`} accent="cyan" /></div>}</>}</div>
+          <div className="evidence-band"><div className="band-topline light"><span><span className="trace-mark" />BOTTOM-UP / WHAT THIS MEASUREMENT ACTUALLY SHOWS</span><span>{genericProfile ? `${artifacts.length || 1} ARTIFACTS / ${genericProfiles.reduce((total, item) => total + item.row_count, 0)} ROWS` : dataset ? `${dataset.row_count} ROWS / DETERMINISTIC` : "DATA PENDING"}</span></div>{genericProfile ? <GenericEvidenceDeck artifacts={artifacts} profiles={genericProfiles} bindings={genericBindings} evidence={genericEvidence} method={map.measurement_method} /> : <><div className="evidence-layout"><div className="trace-wrap">{rows.length ? <TraceChart rows={rows} /> : <div className="trace-empty"><FileUp size={18} /><span>Upload a UTF-8 CSV to render the raw trace.</span></div>}</div><div className="measurement-boundary"><div className="boundary-code"><span>METHOD /</span><strong>{methodLabel(map.measurement_method)}</strong></div><div className="boundary-row"><span>MEASURES</span><strong>TOTAL LOOP RESISTANCE</strong></div><div className="boundary-row"><span>CANNOT DISTINGUISH</span><strong>SAMPLE <i>vs</i> CONTACT + LEAD</strong></div><div className="equation">R<sub>2W</sub> = R<sub>s</sub> + R<sub>c</sub> + R<sub>lead</sub></div></div></div>{dataset && <div className="metric-strip"><Metric label="TEMPERATURE" value={`${formatNumber(dataset.temperature_range_c[0], 0)}–${formatNumber(dataset.temperature_range_c[1], 0)} °C`} /><Metric label="RESISTANCE" value={`${formatNumber(dataset.first_resistance_ohm)} → ${formatNumber(dataset.last_resistance_ohm)} Ω`} /><Metric label="CHANGE" value={`${change >= 0 ? "+" : ""}${formatNumber(change)}%`} accent="cyan" /></div>}</>}</div>
         </section>
         <aside className="gap-rail"><div className="rail-cap"><span>THE GAP</span><span>IDENTIFIABILITY</span></div><div className="verdict-block"><span className="verdict-pulse" /><p>{map.freeze_status === "FROZEN" ? "MECHANISM" : "DECISION"}</p><h2>{map.freeze_status === "FROZEN" ? "NOT ESTABLISHED" : "PENDING"}</h2><div className="verdict-rule" /><span>{map.dominant_gap}</span></div>{control ? <><div className="control-module"><div className="control-label"><FlaskConical size={15} />NEXT DISCRIMINATING MOVE</div><h3>{control.experiment}</h3><div className="control-meta"><div><span>CHANGES</span><strong>SENSING TOPOLOGY</strong></div><div><span>HOLDS FIXED</span><strong>{control.preconditions.slice(0, 2).join(" · ")}</strong></div></div><div className="control-targets"><span><Check size={12} /> CLOSES {control.closes_signature_ids?.join(" / ") ?? "—"}</span><span><ArrowRight size={12} /> LEAVES {control.leaves_open_signature_ids?.join(" / ") ?? "—"} OPEN</span></div><button type="button" className="control-button" onClick={() => void copyControl()}>COPY FOLLOW-UP CONTRACT <ArrowRight size={15} /></button></div><div className="outcome-fork"><span className="fork-label"><GitBranch size={13} />EXPECTED OUTCOME FORK</span>{control.outcomes.slice(0, 2).map((outcome, index) => <div className="outcome-row" key={`${outcome.then}-${index}`}><span>{index === 0 ? "PERSISTS" : "WEAKENS"}</span><p>{outcome.then}</p></div>)}</div></> : <><div className="control-module control-pending"><div className="control-label"><FlaskConical size={15} />CONTROL PENDING</div><h3>Codex has not committed a control contract for this Run.</h3><p>Complete signature alignments before presenting the next discriminating move.</p></div><div className="outcome-fork"><span className="fork-label"><GitBranch size={13} />OUTCOME FORK PENDING</span><p>No committed control means no recorded outcome fork yet.</p></div></>}<div className="rail-footer"><span><ShieldCheck size={13} /> GPT-5.6 VIA CODEX MCP</span><span>LOCAL UI · NO CLOUD DATA UPLOAD</span></div></aside>
       </div>
@@ -600,7 +637,7 @@ function MapScreen({ detail, onNotice, onFreeze, onRefresh }: { detail: Detail; 
   );
 }
 
-function BindingPanel({ detail, profile, onNotice, onRefresh }: { detail: Detail; profile: GenericProfile; onNotice: (notice: string) => void; onRefresh: () => void }) {
+function BindingPanel({ detail, profile, artifact, onNotice, onRefresh }: { detail: Detail; profile: GenericProfile; artifact?: Artifact; onNotice: (notice: string) => void; onRefresh: () => void }) {
   const numeric = profile.columns.filter((column) => column.inferred_type === "numeric" || column.inferred_type === "integer");
   const [xColumnId, setXColumnId] = useState(profile.columns[0]?.column_id ?? "");
   const [yColumnId, setYColumnId] = useState(numeric.find((column) => column.column_id !== profile.columns[0]?.column_id)?.column_id ?? numeric[0]?.column_id ?? "");
@@ -615,18 +652,20 @@ function BindingPanel({ detail, profile, onNotice, onRefresh }: { detail: Detail
     const selected = [xColumnId, yColumnId].map((id) => profile.columns.find((column) => column.column_id === id)).filter(Boolean);
     const confirmedUnits = Object.fromEntries(selected.flatMap((column) => column?.unit.value ? [[column.column_id, column.unit.value]] : []));
     try {
-      await api(`/api/generic/runs/${detail.run.run_id}/binding`, { method: "POST", body: JSON.stringify({ binding: { artifact_id: "artifact-001", x_column_id: xColumnId, y_column_ids: [yColumnId], confirmed_units: confirmedUnits, confirmation_authority: "researcher", confirmed_at: new Date().toISOString() }, recipe: proposal }) });
+      await api(`/api/generic/runs/${detail.run.run_id}/artifact-binding`, { method: "POST", body: JSON.stringify({ binding: { artifact_id: profile.artifact_id, x_column_id: xColumnId, y_column_ids: [yColumnId], confirmed_units: confirmedUnits, confirmation_authority: "researcher", confirmed_at: new Date().toISOString() }, recipe: proposal }) });
       onNotice("Research binding confirmed. Codex can now review source roles; freeze remains your decision.");
       onRefresh();
     } catch (caught) {
       onNotice(`Binding blocked: ${caught instanceof Error ? caught.message : "check the selected columns."}`);
     }
   };
-  return <section className="binding-panel"><div><p className="kicker">RESEARCHER CONFIRMATION / DATA BINDING</p><h2>Columns are not scientific roles until you confirm them.</h2>{codexProposed ? <p><strong>CODEX PROPOSAL / {proposal.replaceAll("_", " ")}</strong> · {routing?.reasons[0] ?? "Recorded from the Run context."} Confirm the primary axis and observable before the packet can freeze.</p> : <p><strong>CONTROL PENDING / NO CODEX MODALITY COMMITTED</strong> · GroundLoop's header signal is advisory only. Confirm this binding as generic, or ask Codex to read the method and literature before it proposes a recipe.</p>}</div><div className="binding-controls"><label><span>X / INDEPENDENT</span><select value={xColumnId} onChange={(event) => setXColumnId(event.target.value)}>{profile.columns.map((column) => <option value={column.column_id} key={column.column_id}>{column.name} · {column.unit.value ?? "unit unknown"}</option>)}</select></label><label><span>Y / OBSERVABLE</span><select value={yColumnId} onChange={(event) => setYColumnId(event.target.value)}>{numeric.map((column) => <option value={column.column_id} key={column.column_id}>{column.name} · {column.unit.value ?? "unit unknown"}</option>)}</select></label><button type="button" className="primary-button" onClick={() => void confirm()}>CONFIRM {codexProposed ? "PROPOSED" : "GENERIC"} BINDING <Check size={15} /></button></div></section>;
+  return <section className="binding-panel"><div><p className="kicker">RESEARCHER CONFIRMATION / DATA BINDING</p><h2>{artifact?.label ?? profile.artifact_id}: columns are not scientific roles until you confirm them.</h2>{codexProposed ? <p><strong>CODEX PROPOSAL / {proposal.replaceAll("_", " ")}</strong> · {routing?.reasons[0] ?? "Recorded from the Run context."} Confirm the primary axis and observable before the packet can freeze.</p> : <p><strong>CONTROL PENDING / NO CODEX MODALITY COMMITTED</strong> · GroundLoop's header signal is advisory only. Confirm this binding as generic, or ask Codex to read the method and literature before it proposes a recipe.</p>}</div><div className="binding-controls"><label><span>X / INDEPENDENT</span><select value={xColumnId} onChange={(event) => setXColumnId(event.target.value)}>{profile.columns.map((column) => <option value={column.column_id} key={column.column_id}>{column.name} · {column.unit.value ?? "unit unknown"}</option>)}</select></label><label><span>Y / OBSERVABLE</span><select value={yColumnId} onChange={(event) => setYColumnId(event.target.value)}>{numeric.map((column) => <option value={column.column_id} key={column.column_id}>{column.name} · {column.unit.value ?? "unit unknown"}</option>)}</select></label><button type="button" className="primary-button" onClick={() => void confirm()}>CONFIRM {codexProposed ? "PROPOSED" : "GENERIC"} BINDING <Check size={15} /></button></div></section>;
 }
 
-function GenericEvidenceDeck({ profile, evidence, method }: { profile: GenericProfile; evidence: Detail["data_evidence"]; method: string }) {
-  return <div className="evidence-layout"><div className="trace-wrap generic-data-bay"><div className="field-caption"><span>COLUMN / TYPE / UNIT / MISSING</span><span>BOUND BEFORE INTERPRETATION</span></div><div className="generic-column-table">{profile.columns.slice(0, 6).map((column) => <div key={column.column_id}><span>{column.name}</span><span>{column.inferred_type}</span><span>{column.unit.value ?? "—"} / {column.unit.status}</span><span>{column.missing_count} missing</span></div>)}</div><div className="generic-facts">{evidence?.length ? evidence.slice(-2).map((item) => <p key={item.evidence_id}><strong>{item.operation.toUpperCase()}</strong> · {item.fact_text}</p>) : <p><strong>NO MATERIALIZED FACT YET</strong> · Codex must request an allowlisted operation after the researcher freezes this binding.</p>}</div></div><div className="measurement-boundary"><div className="boundary-code"><span>METHOD /</span><strong>GENERIC TABULAR</strong></div><div className="boundary-row"><span>CONTEXT</span><strong>{method.slice(0, 92)}{method.length > 92 ? "…" : ""}</strong></div><div className="boundary-row"><span>REQUIRES</span><strong>CONFIRMED COLUMN ROLES + UNITS</strong></div><div className="equation">DATA → FACT → ALIGNMENT</div></div></div>;
+function GenericEvidenceDeck({ artifacts, profiles, bindings, evidence, method }: { artifacts: Artifact[]; profiles: GenericProfile[]; bindings: ArtifactBinding[]; evidence: Detail["data_evidence"]; method: string }) {
+  const profile = profiles[0];
+  const bindingIds = new Set(bindings.map((binding) => binding.artifact_id));
+  return <div className="evidence-layout"><div className="trace-wrap generic-data-bay"><div className="field-caption"><span>ARTIFACT / PROFILE / BINDING</span><span>ROWS NEVER MERGED</span></div><div className="artifact-ledger">{artifacts.map((artifact) => { const itemProfile = profiles.find((item) => item.artifact_id === artifact.artifact_id); return <div key={artifact.artifact_id}><span>{artifact.label ?? artifact.artifact_id}</span><span>{artifact.filename}</span><span>{itemProfile ? `${itemProfile.row_count}×${itemProfile.column_count}` : "profile pending"}</span><span>{artifact.sha256.slice(0, 12)}</span><span className={bindingIds.has(artifact.artifact_id) ? "bound" : "unbound"}>{bindingIds.has(artifact.artifact_id) ? "BOUND" : "BINDING REQUIRED"}</span></div>; })}</div>{profile && <><div className="field-caption"><span>CURRENT COLUMNS / {profile.artifact_id}</span><span>BOUND BEFORE INTERPRETATION</span></div><div className="generic-column-table">{profile.columns.slice(0, 6).map((column) => <div key={column.column_id}><span>{column.name}</span><span>{column.inferred_type}</span><span>{column.unit.value ?? "—"} / {column.unit.status}</span><span>{column.missing_count} missing</span></div>)}</div></>}<div className="generic-facts">{evidence?.length ? evidence.slice(-3).map((item) => <p key={item.evidence_id}><strong>{item.artifact_id} / {item.operation.toUpperCase()}</strong> · {item.fact_text}</p>) : <p><strong>NO MATERIALIZED FACT YET</strong> · Codex must request an allowlisted operation after the researcher freezes artifact bindings.</p>}</div></div><div className="measurement-boundary"><div className="boundary-code"><span>METHOD /</span><strong>GENERIC TABULAR</strong></div><div className="boundary-row"><span>CONTEXT</span><strong>{method.slice(0, 92)}{method.length > 92 ? "…" : ""}</strong></div><div className="boundary-row"><span>REQUIRES</span><strong>CONFIRMED COLUMN ROLES PER ARTIFACT</strong></div><div className="equation">ARTIFACT → FACT → ALIGNMENT</div></div></div>;
 }
 
 function TraceChart({ rows }: { rows: Dataset["rows"] }) {

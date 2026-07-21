@@ -19,6 +19,7 @@ from packages.core.store import RunStore
 
 
 SPECTRUM = b"wavelength_nm,intensity_counts\n580,12\n600,28\n620,91\n640,45\n660,18\n"
+TEMPERATURE_CONTROL = b"temperature_c,peak_intensity_counts\n20,41\n40,58\n60,79\n80,104\n"
 
 
 def _codex_spectrum_proposal() -> MeasurementModalityProposal:
@@ -156,6 +157,134 @@ def test_generic_spectrum_run_materializes_evidence_and_exports(tmp_path: Path) 
     assert "Excerpt SHA-256" in markdown
     assert "two-wire" not in markdown.lower()
     assert "resistance" not in markdown.lower()
+
+
+def test_multi_artifact_generic_run_freezes_materializes_and_exports_cross_artifact_evidence(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    detail = store.create_generic_run(
+        ClaimInput(claim="A spectral feature is caused by the proposed defect-state mechanism."),
+        "Steady-state spectrum and a matched temperature-control intensity series were exported as separate CSV artifacts under fixed excitation geometry.",
+        SPECTRUM,
+        [_source()],
+        filename="primary-spectrum.csv",
+    )
+    run_id = detail["run"]["run_id"]
+    added = store.add_measurement_artifact(
+        run_id,
+        TEMPERATURE_CONTROL,
+        artifact_id="artifact-control",
+        filename="temperature-control.csv",
+        label="control_measurement",
+    )
+    assert len(added["artifacts"]) == 2
+    assert added["artifacts"][1]["sha256"] == hashlib.sha256(TEMPERATURE_CONTROL).hexdigest()
+    assert added["profiles"][1]["columns"][0]["name"] == "temperature_c"
+    store.record_measurement_modality(run_id, _codex_spectrum_proposal())
+    store.set_artifact_binding(
+        run_id,
+        DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_at="2026-07-21T00:00:00+00:00"),
+        "generic_spectrum",
+    )
+    store.record_source_reviews(run_id, [SourceAdjudication(source_id="src-spectrum-limit", verdict="direct", role="method_limit", rationale="The supplied excerpt limits mechanism assignment from a steady-state feature.")])
+    with pytest.raises(ValueError, match="every measurement artifact"):
+        store.prepare_packet(run_id)
+    store.set_artifact_binding(
+        run_id,
+        DatasetBinding(artifact_id="artifact-control", x_column_id="col-001", y_column_ids=["col-002"], confirmed_at="2026-07-21T00:00:00+00:00"),
+        "generic_spectrum",
+    )
+    store.prepare_packet(run_id)
+    packet = store.get_packet(run_id)
+    assert [item["artifact_id"] for item in packet["artifacts"]] == ["artifact-001", "artifact-control"]
+    assert {item["artifact_id"] for item in packet["artifact_bindings"]} == {"artifact-001", "artifact-control"}
+    store.inspect_sources(run_id, [{"expected_observation": "assignment requires a discriminator", "condition": "source excerpt is frozen", "falsifier": "excerpt does not describe the limitation", "evidence_ref_ids": ["src-spectrum-limit:evidence"]}])
+    store.analyze_dataset(run_id)
+    spectral_evidence = store.materialize_data_evidence(run_id, "argmax", ["col-001", "col-002"], 2, 6, artifact_id="artifact-001")
+    control_evidence = store.materialize_data_evidence(run_id, "endpoint_delta", ["col-001", "col-002"], 2, 5, artifact_id="artifact-control")
+    assert spectral_evidence["artifact_id"] == "artifact-001"
+    assert control_evidence["artifact_id"] == "artifact-control"
+    store.record_signatures(
+        run_id,
+        [
+            RequiredSignature(id="signature-feature", name="Feature", requirement="A spectral peak is present.", expected_observation="The primary spectrum contains a peak.", falsifying_outcome="No peak is present.", theory_evidence_ref_ids=["src-spectrum-limit:evidence"]),
+            RequiredSignature(id="signature-temperature-response", name="Temperature response", requirement="The control series changes as predicted.", expected_observation="Peak intensity changes across temperature.", falsifying_outcome="The peak intensity is invariant."),
+        ],
+    )
+    store.record_alignments(
+        run_id,
+        [
+            AlignmentAdjudication(signature_id="signature-feature", status="Observed", rationale="The primary spectrum has a materialized maximum.", evidence_ref_ids=[spectral_evidence["evidence_id"]]),
+            AlignmentAdjudication(signature_id="signature-temperature-response", status="Observed", rationale="The control artifact shows a temperature-linked intensity change.", evidence_ref_ids=[spectral_evidence["evidence_id"], control_evidence["evidence_id"]], artifact_relation_rationale="The signature cites the spectral feature artifact and the separate temperature-control artifact without merging rows."),
+        ],
+    )
+    store.record_control_contract(
+        run_id,
+        ControlProposal(
+            confound="Steady-state spectral non-uniqueness",
+            experiment="Add a lifetime-resolved spectrum under the same excitation geometry.",
+            preconditions=["Same sample", "Same excitation", "Same collection geometry"],
+            outcomes=[
+                {"if": "Lifetime follows the defect-state prediction", "then": "The assignment gains bounded support."},
+                {"if": "Lifetime does not follow the prediction", "then": "The defect-state assignment is weakened."},
+            ],
+            signature_ref_ids=["signature-temperature-response"],
+            closes_signature_ids=["signature-temperature-response"],
+            leaves_open_signature_ids=["signature-feature"],
+            required_artifact_labels=["lifetime_control"],
+            priority="high",
+            feasibility="One additional matched artifact.",
+        ),
+    )
+    report = store.export_report(run_id)
+    assert len(report["artifacts"]) == 2
+    markdown = store.get_report_markdown(run_id)
+    assert "## Measurement artifacts" in markdown
+    assert "artifact-control" in markdown
+    assert "## Cross-artifact evidence" in markdown
+    assert "lifetime_control" in markdown
+
+
+def test_multi_artifact_rejects_duplicate_identity_hash_and_frozen_mutation(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    detail = store.create_generic_run(
+        ClaimInput(claim="A spectral feature is caused by a proposed mechanism."),
+        "Steady-state spectrum was exported as a bounded CSV with enough method context for source review and controls.",
+        SPECTRUM,
+        [_source()],
+    )
+    run_id = detail["run"]["run_id"]
+    with pytest.raises(ValueError, match="duplicate measurement artifact ID"):
+        store.add_measurement_artifact(run_id, TEMPERATURE_CONTROL, artifact_id="artifact-001")
+    with pytest.raises(ValueError, match="duplicate measurement artifact hash"):
+        store.add_measurement_artifact(run_id, SPECTRUM, artifact_id="artifact-copy")
+    store.record_measurement_modality(run_id, _codex_spectrum_proposal())
+    store.set_artifact_binding(run_id, DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_at="2026-07-21T00:00:00+00:00"), "generic_spectrum")
+    store.record_source_reviews(run_id, [SourceAdjudication(source_id="src-spectrum-limit", verdict="direct", role="method_limit", rationale="The source limits the assignment.")])
+    store.prepare_packet(run_id)
+    with pytest.raises(ValueError, match="DRAFT"):
+        store.add_measurement_artifact(run_id, TEMPERATURE_CONTROL, artifact_id="artifact-control")
+
+
+def test_artifact_update_stales_existing_bindings_and_routing(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    detail = store.create_generic_run(
+        ClaimInput(claim="A spectral feature is caused by a proposed mechanism."),
+        "Steady-state spectrum and a control table were exported separately with bounded method context.",
+        SPECTRUM,
+        [_source()],
+    )
+    run_id = detail["run"]["run_id"]
+    store.add_measurement_artifact(run_id, TEMPERATURE_CONTROL, artifact_id="artifact-control", label="control_measurement")
+    store.record_measurement_modality(run_id, _codex_spectrum_proposal())
+    store.set_artifact_binding(run_id, DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_at="2026-07-21T00:00:00+00:00"), "generic_spectrum")
+    store.set_artifact_binding(run_id, DatasetBinding(artifact_id="artifact-control", x_column_id="col-001", y_column_ids=["col-002"], confirmed_at="2026-07-21T00:00:00+00:00"), "generic_spectrum")
+    store.record_source_reviews(run_id, [SourceAdjudication(source_id="src-spectrum-limit", verdict="direct", role="method_limit", rationale="The source limits mechanism assignment.")])
+    store.update_dataset(run_id, b"wavelength_nm,intensity_counts\n500,2\n510,4\n")
+    draft = store.get_detail(run_id)["draft"]
+    assert draft["artifact_bindings"] == []
+    assert draft["modality_proposal"]["authority"] == "groundloop_heuristic"
+    with pytest.raises(ValueError, match="reconfirm"):
+        store.prepare_packet(run_id)
 
 
 def test_imported_literature_is_bounded_provenance_and_requires_review(tmp_path: Path) -> None:

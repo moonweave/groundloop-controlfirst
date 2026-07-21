@@ -53,19 +53,25 @@ Use `create_generic_run` for arbitrary-header CSV measurements such as spectra,
 sweeps, time series, grouped comparisons, or actuator data. Do **not** force
 these files into the electrical-transport path.
 
-1. Call `inspect_dataset_profile`. Treat `heuristic_modality_signal` and header
-   units as advisory only.
-2. Read the claim, method context, and profile. Search literature outside
+1. Call `inspect_measurement_artifacts` for multi-artifact Runs, or
+   `inspect_dataset_profile` for legacy single-artifact callers. Treat
+   `heuristic_modality_signal` and header units as advisory only.
+2. If the claim requires a separate control, spectrum, time series, lifetime, or
+   geometry table, call `add_measurement_artifact` with bounded inline CSV
+   content. GroundLoop preserves artifacts separately and never merges rows.
+3. Read the claim, method context, and every artifact profile. Search literature outside
    GroundLoop as needed, then call `import_literature_candidates` with bounded
    excerpts and complete provenance. GroundLoop never fetches a supplied URL.
-3. Read the imported candidates and call
+4. Read the imported candidates and call
    `record_measurement_modality` with `authority="codex"`; this is a proposal,
    not scientific proof or recipe activation.
-4. The researcher must confirm `set_dataset_binding` with returned column IDs
-   and either the matching proposed recipe or `generic` before the packet can
-   freeze.
-3. After the human freeze and `analyze_dataset`, call
-   `materialize_data_evidence` for each numerical fact you need. Only cite the
+5. The researcher must confirm `set_artifact_binding` for every artifact with
+   returned column IDs and either the matching proposed recipe or `generic`
+   before the packet can freeze. `set_dataset_binding` remains available for
+   legacy single-artifact Runs.
+6. After the human freeze and `analyze_dataset`, call
+   `materialize_data_evidence` for each numerical fact you need, passing
+   `artifact_id` whenever the Run contains more than one artifact. Only cite the
    returned `data-evidence-*` IDs; do not calculate a result in prose.
 
 ## Staged workflow

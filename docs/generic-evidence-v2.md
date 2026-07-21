@@ -30,11 +30,13 @@ claim + method + CSV + source candidates
 
 ## Generic artifact contract
 
-Each v2 Run stores one bounded UTF-8 CSV artifact with a SHA-256 hash, profile,
-sample rows, inferred types, candidate units, and explicit binding. The MVP UI
-supports one X column, one to three Y columns, optional group, and optional
-acquisition order. Header-derived units remain candidates until confirmed by
-the researcher.
+Each v2 Run stores one or more bounded UTF-8 CSV artifacts. Each artifact has a
+stable artifact ID, filename, optional label, provenance, SHA-256 hash, profile,
+sample rows, inferred types, candidate units, and explicit binding. GroundLoop
+never merges artifact rows automatically. The MVP UI supports one X column, one
+to three Y columns, optional group, and optional acquisition order for each
+artifact. Header-derived units remain candidates until confirmed by the
+researcher.
 
 Codex may import literature candidates through the provider-neutral
 `import_literature_candidates` contract. Each candidate carries a bounded
@@ -57,9 +59,12 @@ selection. The v2 allowlist is:
 - `monotonicity`
 - `group_summary`
 
-Every operation produces a stable `data-evidence-*` ID, exact columns and row
-range, artifact hash, binding hash, operation hash, result, and bounded fact
-text. Codex must cite that ID rather than supplying a calculated result.
+Every operation targets one explicit artifact and produces a stable
+`data-evidence-*` ID, artifact ID, exact columns and row range, artifact hash,
+binding hash, operation hash, result, and bounded fact text. Codex must cite
+that ID rather than supplying a calculated result. A single alignment may cite
+data evidence from multiple artifacts, but each cited fact remains tied to its
+own artifact ID and hash.
 
 ## Alignment and verdict contract
 

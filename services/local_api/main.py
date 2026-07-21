@@ -96,7 +96,16 @@ class LiteratureCandidatesRequest(StrictRequest):
     candidates: list[LiteratureCandidate] = Field(min_length=1, max_length=20)
 
 
+class MeasurementArtifactRequest(StrictRequest):
+    artifact_id: str = Field(pattern=r"^artifact-[a-zA-Z0-9_-]+$")
+    filename: str = Field(default="dataset.csv", min_length=1, max_length=255)
+    dataset_csv: str = Field(min_length=1, max_length=5 * 1024 * 1024)
+    provenance: str = Field(default="USER_MEASUREMENT")
+    label: str | None = Field(default=None, min_length=1, max_length=80)
+
+
 class DataEvidenceRequest(StrictRequest):
+    artifact_id: str = Field(default="artifact-001", pattern=r"^artifact-[a-zA-Z0-9_-]+$")
     operation: str = Field(min_length=1, max_length=80)
     selected_columns: list[str] = Field(min_length=1, max_length=8)
     row_start: int = Field(ge=2)
@@ -215,6 +224,34 @@ def create_app(store: RunStore | None = None, discovery: ReferenceDiscovery | No
         except Exception as exc:
             raise _error(exc) from exc
 
+    @app.post("/api/generic/runs/{run_id}/artifacts")
+    def add_measurement_artifact(run_id: str, request: MeasurementArtifactRequest) -> dict[str, Any]:
+        try:
+            return app.state.store.add_measurement_artifact(
+                run_id,
+                request.dataset_csv.encode("utf-8"),
+                artifact_id=request.artifact_id,
+                filename=request.filename,
+                provenance=request.provenance,
+                label=request.label,
+            )
+        except Exception as exc:
+            raise _error(exc) from exc
+
+    @app.get("/api/generic/runs/{run_id}/artifacts")
+    def inspect_measurement_artifacts(run_id: str) -> dict[str, Any]:
+        try:
+            return app.state.store.inspect_measurement_artifacts(run_id)
+        except Exception as exc:
+            raise _error(exc) from exc
+
+    @app.post("/api/generic/runs/{run_id}/artifact-binding")
+    def artifact_binding(run_id: str, request: DatasetBindingRequest) -> dict[str, Any]:
+        try:
+            return app.state.store.set_artifact_binding(run_id, request.binding, request.recipe)
+        except Exception as exc:
+            raise _error(exc) from exc
+
     @app.post("/api/generic/runs/{run_id}/binding")
     def binding(run_id: str, request: DatasetBindingRequest) -> dict[str, Any]:
         try:
@@ -239,7 +276,7 @@ def create_app(store: RunStore | None = None, discovery: ReferenceDiscovery | No
     @app.post("/api/generic/runs/{run_id}/data-evidence")
     def generic_data_evidence(run_id: str, request: DataEvidenceRequest) -> dict[str, Any]:
         try:
-            return app.state.store.materialize_data_evidence(run_id, request.operation, request.selected_columns, request.row_start, request.row_end, request.parameters)
+            return app.state.store.materialize_data_evidence(run_id, request.operation, request.selected_columns, request.row_start, request.row_end, request.parameters, request.artifact_id)
         except Exception as exc:
             raise _error(exc) from exc
 

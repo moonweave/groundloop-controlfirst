@@ -97,3 +97,50 @@ def test_generic_mcp_profile_binding_and_materialized_fact(tmp_path: Path, monke
     evidence = mcp_main.materialize_data_evidence(run_id, "argmax", ["col-001", "col-002"], 2, 4)
     assert evidence["ok"] is True
     assert evidence["result"]["result"]["x"] == 620
+
+
+def test_generic_mcp_multi_artifact_contract(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(mcp_main, "store", RunStore(tmp_path / "runs"))
+    source = SourceInput(id="src-limit", title="Spectral limit", authors=["Lab"], year=2025, url_or_doi="https://example.invalid/limit", locator={"section": "Abstract"}, untrusted_content="A steady-state spectral feature alone does not uniquely identify a mechanism.")
+    created = mcp_main.create_generic_run(
+        claim="A spectral feature is caused by a defect-state mechanism.",
+        methods="A primary spectrum and a separate temperature-control peak intensity table were exported as bounded CSV artifacts.",
+        dataset_csv="wavelength_nm,intensity_counts\n580,12\n620,91\n660,18\n",
+        sources=[source],
+        filename="primary-spectrum.csv",
+    )
+    assert created["ok"] is True
+    run_id = created["result"]["run"]["run_id"]
+    added = mcp_main.add_measurement_artifact(
+        run_id,
+        "artifact-control",
+        "temperature_c,peak_intensity_counts\n20,41\n40,58\n60,79\n",
+        filename="temperature-control.csv",
+        label="control_measurement",
+    )
+    assert added["ok"] is True
+    inspected = mcp_main.inspect_measurement_artifacts(run_id)
+    assert inspected["ok"] is True
+    assert len(inspected["result"]["artifacts"]) == 2
+    assert inspected["result"]["binding_status"][1]["status"] == "required"
+    assert mcp_main.record_measurement_modality(
+        run_id,
+        MeasurementModalityProposal(candidate="generic_spectrum", confidence="high", reasons=["Codex read both artifact profiles as spectrum plus temperature-control evidence."], authority="codex"),
+    )["ok"] is True
+    assert mcp_main.set_artifact_binding(
+        run_id,
+        DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_at="2026-07-21T00:00:00+00:00"),
+        "generic_spectrum",
+    )["ok"] is True
+    assert mcp_main.set_artifact_binding(
+        run_id,
+        DatasetBinding(artifact_id="artifact-control", x_column_id="col-001", y_column_ids=["col-002"], confirmed_at="2026-07-21T00:00:00+00:00"),
+        "generic_spectrum",
+    )["ok"] is True
+    assert mcp_main.record_source_reviews(run_id, [SourceAdjudication(source_id="src-limit", verdict="direct", role="method_limit", rationale="The source limits steady-state mechanism assignment.")])["ok"] is True
+    assert mcp_main.store.prepare_packet(run_id)["state"] == "PACKET_READY"
+    assert mcp_main.inspect_sources(run_id)["ok"] is True
+    assert mcp_main.analyze_dataset(run_id)["ok"] is True
+    evidence = mcp_main.materialize_data_evidence(run_id, "endpoint_delta", ["col-001", "col-002"], 2, 4, artifact_id="artifact-control")
+    assert evidence["ok"] is True
+    assert evidence["result"]["artifact_id"] == "artifact-control"

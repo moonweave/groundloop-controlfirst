@@ -156,6 +156,7 @@ class AlignmentAdjudication(StrictModel):
     status: Literal["Observed", "Confounded", "Missing", "Contradicted"]
     rationale: str = Field(min_length=1, max_length=1200)
     evidence_ref_ids: list[str] = Field(default_factory=list, max_length=20)
+    artifact_relation_rationale: str | None = Field(default=None, max_length=500)
     alternative_explanation: str | None = Field(default=None, max_length=500)
     missing_reason: Literal[
         "not_measured", "not_specified_by_theory", "theory_prediction_unspecified", "outside_method_capability", "data_quality_insufficient", "required_condition_not_recorded"
@@ -178,6 +179,7 @@ class ControlProposal(StrictModel):
     feasibility: str = Field(min_length=1, max_length=300)
     closes_signature_ids: list[str] = Field(default_factory=list, max_length=10)
     leaves_open_signature_ids: list[str] = Field(default_factory=list, max_length=10)
+    required_artifact_labels: list[str] = Field(default_factory=list, max_length=10)
 
 
 class ConvergenceMap(StrictModel):
@@ -282,6 +284,7 @@ class ColumnProfile(StrictModel):
 class DatasetArtifact(StrictModel):
     artifact_id: str = Field(pattern=r"^artifact-[a-zA-Z0-9_-]+$")
     filename: str = Field(min_length=1, max_length=255)
+    label: str | None = Field(default=None, min_length=1, max_length=80)
     media_type: Literal["text/csv"] = "text/csv"
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     byte_count: int = Field(ge=1, le=5 * 1024 * 1024)
