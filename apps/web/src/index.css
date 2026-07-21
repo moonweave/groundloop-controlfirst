@@ -258,6 +258,8 @@ a { color: inherit; }
 .freeze-stamp { color: #7adbea; font-size: 9px; }
 .freeze-action { border-color: #7adbea; padding: 11px 13px; background: transparent; color: #7adbea; white-space: nowrap; }
 .freeze-action:hover:not(:disabled) { background: rgba(122,219,234,.12); transform: translateY(-1px); }
+.freeze-callout.not-ready { border-color: #7d898d; background: #39434a; }
+.freeze-callout.not-ready svg, .freeze-callout.not-ready .freeze-action { color: #d4dde0; border-color: #d4dde0; }
 .export-stack { display: grid; justify-items: end; gap: 9px; }
 .export-actions { display: flex; align-items: end; gap: 8px; }
 .export-hint { max-width: 330px; margin: 0; color: var(--muted); font: 10px/1.45 var(--mono); text-align: right; }
@@ -270,6 +272,7 @@ a { color: inherit; }
 .sheet-verdict strong { display: block; margin: 10px 0; color: var(--charcoal); font-size: 26px; letter-spacing: -.06em; }
 .sheet-verdict p { max-width: 650px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
 .sheet-control strong { display: block; margin-top: 10px; color: var(--cobalt); font-size: 18px; line-height: 1.3; letter-spacing: -.04em; }
+.sheet-help { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .sheet-control div { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
 .sheet-control div span { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-family: var(--mono); font-size: 9px; letter-spacing: .06em; }
 .timeline-panel { border: 1px solid var(--line); padding: 20px; background: rgba(255,255,255,.6); }
