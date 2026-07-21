@@ -196,7 +196,7 @@ def materialize_evidence(
     allowed = {
         "raw_slice", "column_summary", "endpoint_delta", "argmax", "argmin", "range_extrema",
         "linear_fit", "correlation", "monotonicity", "group_summary", "grouped_extrema",
-        "hysteresis_window", "power_law_fit",
+        "hysteresis_window", "power_law_fit", "local_peak",
     }
     if operation not in allowed:
         raise ValueError("unsupported deterministic evidence operation")
@@ -257,6 +257,56 @@ def materialize_evidence(
             result = {"slope": slope, "intercept": intercept, "point_count": len(pairs)}
             fact = f"Ordinary least-squares fit of {names[1]} versus {names[0]} has slope {slope:.6g} over {len(pairs)} finite pairs."
         hint = "line"
+    elif operation == "local_peak":
+        if len(selected_columns) < 2:
+            raise ValueError("local_peak requires X and Y columns")
+        pairs = _numeric_pairs(rows, names[0], names[1])
+        if len(pairs) < 3:
+            raise ValueError("local_peak requires at least three finite numeric pairs")
+        ys = [pair[1] for pair in pairs]
+        y_range = max(ys) - min(ys)
+        minimum_fraction = float(parameters.get("minimum_prominence_fraction", 0.0))
+        if minimum_fraction < 0:
+            raise ValueError("minimum_prominence_fraction must be non-negative")
+        minimum_prominence = y_range * minimum_fraction
+        peaks = []
+        for index in range(1, len(pairs) - 1):
+            left, current, right = pairs[index - 1], pairs[index], pairs[index + 1]
+            if current[1] > left[1] and current[1] > right[1]:
+                prominence = current[1] - max(left[1], right[1])
+                if prominence >= minimum_prominence:
+                    peaks.append({
+                        "x": current[0],
+                        "y": current[1],
+                        "row": row_start + index,
+                        "left_y": left[1],
+                        "right_y": right[1],
+                        "prominence": prominence,
+                    })
+        target = parameters.get("target_x")
+        tolerance = parameters.get("x_tolerance")
+        target_peak = None
+        if target is not None:
+            target_value = float(target)
+            tolerance_value = float(tolerance if tolerance is not None else 0.0)
+            if tolerance_value < 0:
+                raise ValueError("x_tolerance must be non-negative")
+            target_peak = next((peak for peak in peaks if abs(float(peak["x"]) - target_value) <= tolerance_value), None)
+        strongest = max(peaks, key=lambda peak: float(peak["prominence"])) if peaks else None
+        result = {
+            "peak_count": len(peaks),
+            "minimum_prominence": minimum_prominence,
+            "strongest_peak": strongest,
+            "target_x": target,
+            "x_tolerance": tolerance,
+            "target_observed": target_peak is not None if target is not None else None,
+            "target_peak": target_peak,
+        }
+        if strongest:
+            fact = f"Within rows {row_start}–{row_end}, {names[1]} has {len(peaks)} strict local peak(s); the strongest is at {names[0]}={strongest['x']:.6g} with prominence {strongest['prominence']:.6g}."
+        else:
+            fact = f"Within rows {row_start}–{row_end}, {names[1]} has no strict local peak above the requested prominence threshold."
+        hint = "line"
     elif operation == "correlation":
         if len(selected_columns) < 2:
             raise ValueError("correlation requires two numeric columns")
@@ -288,8 +338,12 @@ def materialize_evidence(
             raise ValueError("power_law_fit requires variation in positive X")
         exponent = sum((x - mean_x) * (y - mean_y) for x, y in log_pairs) / denominator
         log10_prefactor = mean_y - exponent * mean_x
-        result = {"exponent": exponent, "log10_prefactor": log10_prefactor, "positive_pair_count": len(pairs)}
-        fact = f"Power-law fit of {names[1]} versus {names[0]} has exponent {exponent:.6g} across {len(pairs)} positive finite pairs."
+        fitted = [exponent * x + log10_prefactor for x in xs]
+        total = sum((y - mean_y) ** 2 for y in ys)
+        residual = sum((y - y_hat) ** 2 for y, y_hat in zip(ys, fitted))
+        r_squared = 1.0 if total == 0 else 1 - residual / total
+        result = {"exponent": exponent, "log10_prefactor": log10_prefactor, "r_squared": r_squared, "positive_pair_count": len(pairs)}
+        fact = f"Power-law fit of {names[1]} versus {names[0]} has exponent {exponent:.6g} with R^2={r_squared:.6g} across {len(pairs)} positive finite pairs."
         hint = "scatter"
     elif operation == "hysteresis_window":
         if len(selected_columns) < 3:

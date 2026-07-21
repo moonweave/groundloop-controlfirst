@@ -180,6 +180,59 @@ def test_generic_spectrum_run_materializes_evidence_and_exports(tmp_path: Path) 
     assert "two-wire" not in markdown.lower()
 
 
+def test_local_peak_materializes_pl_peak_without_treating_any_maximum_as_peak(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    run_id, _ = _complete_to_analysis(store)
+
+    peak = store.materialize_data_evidence(
+        run_id,
+        "local_peak",
+        ["col-001", "col-002"],
+        2,
+        6,
+        {"target_x": 620, "x_tolerance": 2, "minimum_prominence_fraction": 0.2},
+    )
+
+    assert peak["result"]["peak_count"] == 1
+    assert peak["result"]["target_observed"] is True
+    assert peak["result"]["target_peak"]["x"] == 620
+    assert peak["result"]["target_peak"]["prominence"] == 46
+    assert "strict local peak" in peak["fact_text"]
+
+    monotonic = b"wavelength_nm,intensity_counts\n580,12\n600,28\n620,45\n640,65\n"
+    detail = store.create_generic_run(
+        ClaimInput(claim="A monotonic PL spectrum contains a defect peak near 620 nm."),
+        "Steady-state photoluminescence was exported as wavelength and intensity values under fixed excitation.",
+        monotonic,
+        [_source()],
+        filename="monotonic-pl.csv",
+    )
+    monotonic_run = detail["run"]["run_id"]
+    store.record_measurement_modality(monotonic_run, _codex_spectrum_proposal())
+    store.set_dataset_binding(
+        monotonic_run,
+        DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_at="2026-07-21T00:00:00+00:00"),
+        "generic_spectrum",
+    )
+    store.record_source_reviews(monotonic_run, [SourceAdjudication(source_id="src-spectrum-limit", verdict="direct", role="method_limit", rationale="The supplied source limits peak assignment from a steady-state spectrum.")])
+    store.prepare_packet(monotonic_run)
+    store.inspect_sources(monotonic_run, [{"expected_observation": "peak assignment is limited", "condition": "source excerpt is frozen", "falsifier": "excerpt does not describe the limitation", "evidence_ref_ids": ["src-spectrum-limit:evidence"]}])
+    store.analyze_dataset(monotonic_run)
+
+    no_peak = store.materialize_data_evidence(
+        monotonic_run,
+        "local_peak",
+        ["col-001", "col-002"],
+        2,
+        5,
+        {"target_x": 620, "x_tolerance": 2},
+    )
+
+    assert no_peak["result"]["peak_count"] == 0
+    assert no_peak["result"]["target_observed"] is False
+    assert "no strict local peak" in no_peak["fact_text"]
+
+
 def test_generic_iv_trap_scenario_keeps_mechanism_confounded(tmp_path: Path) -> None:
     store = RunStore(tmp_path / "runs")
     detail = store.create_generic_run(
@@ -258,6 +311,7 @@ def test_generic_iv_trap_scenario_keeps_mechanism_confounded(tmp_path: Path) -> 
     slope = store.materialize_data_evidence(run_id, "power_law_fit", ["col-001", "col-002"], 2, 12)
     monotonicity = store.materialize_data_evidence(run_id, "monotonicity", ["col-001", "col-002"], 2, 12)
     assert slope["result"]["exponent"] > 2
+    assert slope["result"]["r_squared"] > 0.99
     store.record_signatures(
         run_id,
         [
@@ -346,6 +400,7 @@ def test_power_law_fit_rejects_nonpositive_selected_range(tmp_path: Path) -> Non
         store.materialize_data_evidence(run_id, "power_law_fit", ["col-001", "col-002"], 2, 5)
     evidence = store.materialize_data_evidence(run_id, "power_law_fit", ["col-001", "col-002"], 4, 5)
     assert evidence["result"]["exponent"] == pytest.approx(2)
+    assert evidence["result"]["r_squared"] == pytest.approx(1)
 
 
 def test_grouped_extrema_materializes_forward_reverse_peaks_without_codex_arithmetic(tmp_path: Path) -> None:

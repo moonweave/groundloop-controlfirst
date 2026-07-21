@@ -53,9 +53,10 @@ selection. The v2 allowlist is:
 - `column_summary`
 - `endpoint_delta`
 - `argmax` / `argmin`
+- `local_peak` — materialize strict local peaks, optional target-X matching, and prominence against neighboring points; useful for PL or absorption features without treating any global maximum as a peak.
 - `range_extrema`
 - `linear_fit`
-- `power_law_fit`
+- `power_law_fit` — fit positive selected ranges in log-log space and return exponent plus R^2.
 - `correlation`
 - `monotonicity`
 - `group_summary`
