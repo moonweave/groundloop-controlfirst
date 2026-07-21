@@ -213,6 +213,7 @@ type ArtifactBinding = {
   y_column_ids: string[];
   group_column_id?: string | null;
   acquisition_order_column_id?: string | null;
+  confirmed_units?: Record<string, string>;
 };
 type GenericProfile = {
   artifact_id: string;
@@ -366,6 +367,12 @@ function bindingRole(columnId: string, binding?: ArtifactBinding) {
   if (binding.group_column_id === columnId) return " · GROUP";
   if (binding.acquisition_order_column_id === columnId) return " · ORDER";
   return "";
+}
+
+function displayUnit(column: GenericProfile["columns"][number], binding?: ArtifactBinding) {
+  const confirmed = binding?.confirmed_units?.[column.column_id];
+  if (confirmed) return `${confirmed} / confirmed`;
+  return `${column.unit.value ?? "—"} / ${column.unit.status}`;
 }
 
 function genericBriefContext(detail: Detail) {
@@ -697,6 +704,8 @@ function MapScreen({ detail, onNotice, onFreeze, onRefresh }: { detail: Detail; 
   const [copied, setCopied] = useState(false);
   const selected = map?.signatures.find((item) => item.id === selectedId);
   const selectedAlignment = map?.alignments.find((item) => item.signature_id === selectedId);
+  const selectedIndex = selected ? map?.signatures.findIndex((item) => item.id === selected.id) ?? -1 : -1;
+  const selectedLabel = selectedIndex >= 0 ? `S${String(selectedIndex + 1).padStart(2, "0")}` : "—";
   const control = map?.control;
   const rows = dataset?.rows ?? [];
   const change = dataset?.percent_change ?? 0;
@@ -741,7 +750,7 @@ function MapScreen({ detail, onNotice, onFreeze, onRefresh }: { detail: Detail; 
         </section>
         <aside className="gap-rail"><div className="rail-cap"><span>THE GAP</span><span>IDENTIFIABILITY</span></div><div className="verdict-block"><span className="verdict-pulse" /><p>{map.freeze_status === "FROZEN" ? "MECHANISM" : "DECISION"}</p><h2>{map.freeze_status === "FROZEN" ? "NOT ESTABLISHED" : "PENDING"}</h2><div className="verdict-rule" /><span>{friendlyGap(map.dominant_gap, detail.run.state)}</span></div>{control ? <><div className="control-module"><div className="control-label"><FlaskConical size={15} />NEXT DISCRIMINATING MOVE</div><h3>{control.experiment}</h3><div className="control-meta"><div><span>TESTS</span><strong>{control.confound}</strong></div><div><span>HOLDS FIXED</span><strong>{control.preconditions.slice(0, 2).join(" · ")}</strong></div></div><div className="control-targets"><span><Check size={12} /> CLOSES {control.closes_signature_ids?.join(" / ") ?? "—"}</span><span><ArrowRight size={12} /> LEAVES {control.leaves_open_signature_ids?.join(" / ") ?? "—"} OPEN</span></div><button type="button" className="control-button" onClick={() => void copyControl()}>COPY FOLLOW-UP CONTRACT <ArrowRight size={15} /></button></div><div className="outcome-fork"><span className="fork-label"><GitBranch size={13} />EXPECTED OUTCOME FORK</span>{control.outcomes.slice(0, 2).map((outcome, index) => <div className="outcome-row" key={`${outcome.then}-${index}`}><span>OUTCOME {index + 1}</span><p>{outcome.then}</p></div>)}</div></> : <><div className="control-module control-pending"><div className="control-label"><FlaskConical size={15} />CONTROL PENDING</div><h3>No next experiment yet.</h3><p>After the data facts and alignments are recorded, Codex will commit one follow-up control here.</p></div><div className="outcome-fork"><span className="fork-label"><GitBranch size={13} />OUTCOME FORK PENDING</span><p>The two possible outcomes will appear after a control is recorded.</p></div></>}<div className="rail-footer"><span><ShieldCheck size={13} /> GPT-5.6 VIA CODEX MCP</span><span>LOCAL UI · NO CLOUD DATA UPLOAD</span></div></aside>
       </div>
-      {selected && selectedAlignment && <section className="signature-inspector"><div><span className="kicker">SELECTED SIGNATURE / {selected.id.replace("signature-", "S")}</span><h2>{selected.name} <StatusBadge status={selectedAlignment.status} /></h2></div><div className="inspector-columns"><div><span className="inspector-label">REQUIRED</span><p>{selected.requirement}</p></div><div><span className="inspector-label">CURRENT RATIONALE</span><p>{selectedAlignment.rationale}</p></div><div><span className="inspector-label">EVIDENCE BOUNDARY</span><p>{selectedAlignment.evidence_ref_ids.length ? selectedAlignment.evidence_ref_ids.join(" · ") : "No direct evidence in this packet."}</p></div></div>{selectedAlignment.alternative_explanation && <div className="alternative-note"><TriangleAlert size={14} /><span>{selectedAlignment.alternative_explanation}</span></div>}</section>}
+      {selected && selectedAlignment && <section className="signature-inspector"><div><span className="kicker">SELECTED SIGNATURE / {selectedLabel}</span><h2>{selected.name} <StatusBadge status={selectedAlignment.status} /></h2></div><div className="inspector-columns"><div><span className="inspector-label">REQUIRED</span><p>{selected.requirement}</p></div><div><span className="inspector-label">CURRENT RATIONALE</span><p>{selectedAlignment.rationale}</p></div><div><span className="inspector-label">EVIDENCE BOUNDARY</span><p>{selectedAlignment.evidence_ref_ids.length ? selectedAlignment.evidence_ref_ids.join(" · ") : "No direct evidence in this packet."}</p></div></div>{selectedAlignment.alternative_explanation && <div className="alternative-note"><TriangleAlert size={14} /><span>{selectedAlignment.alternative_explanation}</span></div>}</section>}
     </div>
   );
 }
@@ -781,6 +790,7 @@ function BindingPanel({ detail, profile, artifact, onNotice, onRefresh }: { deta
 
 function GenericEvidenceDeck({ artifacts, profiles, bindings, evidence, method, onNotice }: { artifacts: Artifact[]; profiles: GenericProfile[]; bindings: ArtifactBinding[]; evidence: Detail["data_evidence"]; method: string; onNotice: (notice: string) => void }) {
   const profile = profiles[0];
+  const primaryBinding = profile ? bindings.find((binding) => binding.artifact_id === profile.artifact_id) : undefined;
   const bindingIds = new Set(bindings.map((binding) => binding.artifact_id));
   const copyIds = async () => {
     try {
@@ -790,7 +800,7 @@ function GenericEvidenceDeck({ artifacts, profiles, bindings, evidence, method, 
       onNotice("Clipboard access was unavailable. The artifact and column IDs remain visible here.");
     }
   };
-  return <div className="evidence-layout"><div className="trace-wrap generic-data-bay"><div className="field-caption"><span>ARTIFACT / PROFILE / BINDING</span><button type="button" className="caption-action" onClick={() => void copyIds()}><Clipboard size={11} /> COPY IDS</button></div><div className="artifact-ledger">{artifacts.map((artifact) => { const itemProfile = profiles.find((item) => item.artifact_id === artifact.artifact_id); return <div key={artifact.artifact_id}><span><strong>{artifact.artifact_id}</strong>{artifact.label && <em>{artifact.label}</em>}</span><span>{artifact.filename}</span><span>{itemProfile ? `${itemProfile.row_count}×${itemProfile.column_count}` : "profile pending"}</span><span>{artifact.sha256.slice(0, 12)}</span><span className={bindingIds.has(artifact.artifact_id) ? "bound" : "unbound"}>{bindingIds.has(artifact.artifact_id) ? "BOUND" : "BINDING REQUIRED"}</span></div>; })}</div>{profile && <><div className="field-caption"><span>CURRENT COLUMNS / {profile.artifact_id}</span><span>USE EXACT COLUMN IDS</span></div><div className="generic-column-table">{profile.columns.slice(0, 6).map((column) => <div key={column.column_id}><span className="column-id-chip">{column.column_id}</span><span>{column.name}</span><span>{column.inferred_type}</span><span>{column.unit.value ?? "—"} / {column.unit.status}</span><span>{column.missing_count} missing</span></div>)}</div></>}<div className="generic-facts">{evidence?.length ? evidence.slice(-3).map((item) => <p key={item.evidence_id}><strong>{item.artifact_id} / {item.operation.toUpperCase()}</strong> · {item.fact_text}</p>) : <p><strong>NO DATA FACT RECORDED YET</strong> · After you freeze the packet, ask Codex to record the measurement fact for the chosen columns.</p>}</div></div><div className="measurement-boundary"><div className="boundary-code"><span>METHOD /</span><strong>GENERIC TABULAR</strong></div><div className="boundary-row"><span>CONTEXT</span><strong>{method.slice(0, 92)}{method.length > 92 ? "…" : ""}</strong></div><div className="boundary-row"><span>REQUIRES</span><strong>CONFIRMED COLUMN ROLES PER ARTIFACT</strong></div><div className="equation">ARTIFACT → FACT → ALIGNMENT</div></div></div>;
+  return <div className="evidence-layout"><div className="trace-wrap generic-data-bay"><div className="field-caption"><span>ARTIFACT / PROFILE / BINDING</span><button type="button" className="caption-action" onClick={() => void copyIds()}><Clipboard size={11} /> COPY IDS</button></div><div className="artifact-ledger">{artifacts.map((artifact) => { const itemProfile = profiles.find((item) => item.artifact_id === artifact.artifact_id); return <div key={artifact.artifact_id}><span><strong>{artifact.artifact_id}</strong>{artifact.label && <em>{artifact.label}</em>}</span><span>{artifact.filename}</span><span>{itemProfile ? `${itemProfile.row_count}×${itemProfile.column_count}` : "profile pending"}</span><span>{artifact.sha256.slice(0, 12)}</span><span className={bindingIds.has(artifact.artifact_id) ? "bound" : "unbound"}>{bindingIds.has(artifact.artifact_id) ? "BOUND" : "BINDING REQUIRED"}</span></div>; })}</div>{profile && <><div className="field-caption"><span>CURRENT COLUMNS / {profile.artifact_id}</span><span>USE EXACT COLUMN IDS</span></div><div className="generic-column-table">{profile.columns.slice(0, 6).map((column) => <div key={column.column_id}><span className="column-id-chip">{column.column_id}</span><span>{column.name}</span><span>{column.inferred_type}</span><span>{displayUnit(column, primaryBinding)}</span><span>{column.missing_count} missing</span></div>)}</div></>}<div className="generic-facts">{evidence?.length ? evidence.slice(-3).map((item) => <p key={item.evidence_id}><strong>{item.artifact_id} / {item.operation.toUpperCase()}</strong> · {item.fact_text}</p>) : <p><strong>NO DATA FACT RECORDED YET</strong> · After you freeze the packet, ask Codex to record the measurement fact for the chosen columns.</p>}</div></div><div className="measurement-boundary"><div className="boundary-code"><span>METHOD /</span><strong>GENERIC TABULAR</strong></div><div className="boundary-row"><span>CONTEXT</span><strong>{method.slice(0, 92)}{method.length > 92 ? "…" : ""}</strong></div><div className="boundary-row"><span>REQUIRES</span><strong>CONFIRMED COLUMN ROLES PER ARTIFACT</strong></div><div className="equation">ARTIFACT → FACT → ALIGNMENT</div></div></div>;
 }
 
 function TraceChart({ rows }: { rows: Dataset["rows"] }) {

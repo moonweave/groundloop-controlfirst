@@ -33,7 +33,11 @@ _KNOWN_UNITS = {
     "min", "h", "hz", "khz", "mhz", "nm", "um", "mm", "cm", "m", "k", "c", "degc",
     "deg", "counts", "au", "arb", "pa", "w", "mw", "j", "ev", "mev", "rh", "%", "percent",
 }
-_UNIT_DISPLAY = {"v": "V", "mv": "mV", "kv": "kV"}
+_UNIT_DISPLAY = {
+    "a": "A", "ma": "mA", "ua": "uA", "na": "nA",
+    "v": "V", "mv": "mV", "kv": "kV",
+    "hz": "Hz", "khz": "kHz", "mhz": "MHz",
+}
 
 
 def _canonical(value: Any) -> str:

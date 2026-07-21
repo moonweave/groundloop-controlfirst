@@ -1341,6 +1341,14 @@ def test_generic_profiler_accepts_bom_quoted_headers_and_preserves_rows() -> Non
     assert profile.sample_rows[0]["label"] == "reference, dark"
 
 
+def test_generic_profiler_displays_electrical_units_with_standard_case() -> None:
+    _, profile = profile_csv(b"voltage_v,current_a,leakage_na,frequency_hz\n1,1e-9,2,1000\n")
+    assert profile.columns[0].unit.value == "V"
+    assert profile.columns[1].unit.value == "A"
+    assert profile.columns[2].unit.value == "nA"
+    assert profile.columns[3].unit.value == "Hz"
+
+
 @pytest.mark.parametrize("raw", [b",intensity\n1,2\n", b"x,x\n1,2\n", b"x,y\n1\n"])
 def test_generic_profiler_rejects_unsafe_headers_or_width(raw: bytes) -> None:
     with pytest.raises(ValueError):
