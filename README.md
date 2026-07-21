@@ -96,6 +96,7 @@ The generic v2 path is the canonical research workflow:
 6. If the evidence boundary is not ready yet, Codex may call `record_provisional_reasoning` to save draft signatures, needed analyses, and control ideas. This is exploratory only.
 7. Codex semantically reviews every candidate by role. The researcher freezes the exact claim, method, artifact IDs, hashes, profiles, bindings, capability pack metadata, selected excerpts, and source provenance.
 8. Codex requests allowlisted operations such as `band_comparison`, `local_peak`, `group_comparison`, `argmax`, `endpoint_delta`, `grouped_extrema`, `hysteresis_window`, `power_law_fit`, `linear_fit`, `correlation`, or `monotonicity` against explicit artifact IDs. Repeated-cycle hysteresis uses an explicit `replicate_strategy` parameter rather than silent averaging. GroundLoop returns the only valid data-evidence IDs and calculated facts.
+   Row selectors use CSV line numbers: the header is line 1, so a 15-row data table is selected as rows 2–16.
 9. Codex records signatures, alignments, one control, and an export. `Observed` and `Contradicted` require GroundLoop-materialized data evidence. `Confounded` also requires a named alternative plus method/source limit evidence.
 
 The included `generic_spectrum` fixture demonstrates this path with

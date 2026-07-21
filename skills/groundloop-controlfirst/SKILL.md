@@ -98,8 +98,9 @@ these files into the electrical-transport path.
    `materialize_data_evidence` for each numerical fact you need, passing
    `artifact_id` whenever the Run contains more than one artifact. GroundLoop
    rejects omitted artifact IDs in multi-artifact Runs because column IDs repeat
-   per artifact. Only cite the returned `data-evidence-*` IDs; do not calculate
-   a result in prose.
+   per artifact. Use CSV line numbers for row selectors: the header is line 1,
+   so 15 data rows are selected as rows 2–16. Only cite the returned
+   `data-evidence-*` IDs; do not calculate a result in prose.
 
 ## Staged workflow
 

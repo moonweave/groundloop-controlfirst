@@ -728,6 +728,9 @@ function MapScreen({ detail, onNotice, onFreeze, onRefresh }: { detail: Detail; 
   const selectedIndex = selected ? map?.signatures.findIndex((item) => item.id === selected.id) ?? -1 : -1;
   const selectedLabel = selectedIndex >= 0 ? `S${String(selectedIndex + 1).padStart(2, "0")}` : "—";
   const control = map?.control;
+  const toolbarCaption = detail.run.state === "DRAFT"
+    ? "Confirm the column roles, review bounded sources, then freeze when the evidence boundary looks right."
+    : "Evidence is frozen. Codex can now materialize data facts, record alignments, and commit one follow-up control.";
   const rows = dataset?.rows ?? [];
   const change = dataset?.percent_change ?? 0;
   const copyBrief = async () => {
@@ -761,7 +764,7 @@ function MapScreen({ detail, onNotice, onFreeze, onRefresh }: { detail: Detail; 
   if (!map) return <div className="workspace-empty"><ScanLine size={32} /><h1>Convergence Map waiting for inputs.</h1><p>Add the claim, method, and CSV to begin the deterministic measurement layer.</p></div>;
   return (
     <div className="map-page">
-      <div className="map-toolbar"><div><p className="kicker">PRIMARY INSTRUMENT / CLAIM ↔ MEASUREMENT</p><p className="toolbar-caption">First confirm what the columns mean. Then use Codex to review sources and record what the data can actually support.</p></div><div className="toolbar-actions">{detail.run.state === "DRAFT" && <button type="button" className="outline-button" onClick={() => void onFreeze()} disabled={!readiness.readyToFreeze} title={readiness.readyToFreeze ? "Freeze the reviewed evidence packet" : readiness.bindingReady ? sourceNextAction(readiness.sources, readiness.directCount, readiness.reviewPending) : "Next: confirm the measurement artifact binding before this packet can freeze."}><LockKeyhole size={14} /> {readiness.actionLabel}</button>}<span className={`draft-chip ${map.freeze_status === "FROZEN" ? "frozen" : ""}`}>{map.freeze_status === "FROZEN" ? <LockKeyhole size={13} /> : <Activity size={13} />}{map.freeze_status === "FROZEN" ? "MAP FROZEN" : "DRAFT ALIGNMENT"}</span><button type="button" className="outline-button" onClick={() => void copyBrief()}><Clipboard size={14} />{copied ? " COPIED" : " COPY CODEX BRIEF"}</button></div></div>
+      <div className="map-toolbar"><div><p className="kicker">PRIMARY INSTRUMENT / CLAIM ↔ MEASUREMENT</p><p className="toolbar-caption">{toolbarCaption}</p></div><div className="toolbar-actions">{detail.run.state === "DRAFT" && <button type="button" className="outline-button" onClick={() => void onFreeze()} disabled={!readiness.readyToFreeze} title={readiness.readyToFreeze ? "Freeze the reviewed evidence packet" : readiness.bindingReady ? sourceNextAction(readiness.sources, readiness.directCount, readiness.reviewPending) : "Next: confirm the measurement artifact binding before this packet can freeze."}><LockKeyhole size={14} /> {readiness.actionLabel}</button>}<span className={`draft-chip ${map.freeze_status === "FROZEN" ? "frozen" : ""}`}>{map.freeze_status === "FROZEN" ? <LockKeyhole size={13} /> : <Activity size={13} />}{map.freeze_status === "FROZEN" ? "MAP FROZEN" : "DRAFT ALIGNMENT"}</span><button type="button" className="outline-button" onClick={() => void copyBrief()}><Clipboard size={14} />{copied ? " COPIED" : " COPY CODEX BRIEF"}</button></div></div>
       {detail.run.workflow === "generic_v2" && detail.run.state === "DRAFT" && unboundProfile && <BindingPanel detail={detail} profile={unboundProfile} artifact={artifacts.find((item) => item.artifact_id === unboundProfile.artifact_id)} onNotice={onNotice} onRefresh={onRefresh} />}
       <div className="instrument-grid">
         <section className="map-instrument" aria-label="Convergence Map">
