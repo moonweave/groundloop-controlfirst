@@ -5,7 +5,7 @@
 - Public repository: `https://github.com/moonweave/groundloop-controlfirst`
 - License: MIT (`LICENSE`)
 - Official repo-access rule checked: the repository must be public with a relevant license, or private and shared with `testing@devpost.com` and `build-week-event@openai.com`. Current state is public + MIT, so a private-repo invite is not required while it remains public.
-- Python suite: `86 passed`
+- Python suite: `87 passed`
 - Web quality gate: lint, TypeScript check, and production build pass
 - Secret scan: no leaks found
 - Judge path: `README.md` → Install → register MCP → install `groundloop-controlfirst` skill → `./scripts/demo.sh` → generic CSV or R(T) method-aware fixture → copy Codex brief → Codex/GPT-5.6 MCP workflow → source-role review → UI freeze → signatures/alignments/control → exported report

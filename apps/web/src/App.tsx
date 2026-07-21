@@ -507,7 +507,12 @@ function App() {
     if (!detail?.run.run_id) return;
     const timer = window.setInterval(() => {
       void api<Detail>(`/api/runs/${detail.run.run_id}`)
-        .then(setDetail)
+        .then((next) => {
+          setDetail(next);
+          if (next.run.state === "EXPORTED") {
+            setNotice("Report exported. This Run is immutable; review the decision or start a new Run for another analysis.");
+          }
+        })
         .catch(() => undefined);
     }, 4500);
     return () => window.clearInterval(timer);
