@@ -79,6 +79,12 @@ a { color: inherit; }
 .upload-copy div { display: grid; gap: 4px; min-width: 0; }
 .upload-copy strong { overflow: hidden; color: var(--ink); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .upload-copy span { overflow: hidden; color: var(--muted); font-family: var(--mono); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.csv-guidance { display: grid; grid-template-columns: .85fr 1.15fr; gap: 14px; margin: 12px 28px 0; border: 1px solid var(--line); padding: 12px 14px; background: rgba(255,255,255,.58); }
+.csv-guidance strong, .csv-guidance span { display: block; }
+.csv-guidance strong { color: var(--charcoal); font-size: 12px; letter-spacing: -.01em; }
+.csv-guidance span { margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.csv-requirements { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.csv-requirements span { border: 1px solid var(--line); padding: 5px 7px; color: var(--cobalt); font-family: var(--mono); font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
 .text-button { color: var(--cobalt); font-family: var(--mono); font-size: 9px; letter-spacing: .1em; white-space: nowrap; }
 .text-button input { display: none; }
 .entry-footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 28px; }
@@ -355,6 +361,7 @@ a { color: inherit; }
   .entry-grid { gap: 0; }
   .entry-grid .field-label { padding-left: 28px; }
   .entry-grid input, .select-wrap select { width: calc(100% - 56px); margin: 0 28px; }
+  .csv-guidance { grid-template-columns: 1fr; }
   .entry-footer { align-items: stretch; flex-direction: column; }
   .recent-runs { border-left: 0; border-top: 1px solid var(--line); padding: 22px 0 0; }
   .workspace-shell { padding: 0 14px 45px; }
@@ -416,7 +423,7 @@ a { color: inherit; }
   .panel-head, .field-label, .entry-footer { padding-right: 18px; padding-left: 18px; }
   .claim-field, .entry-grid input, .select-wrap select { width: calc(100% - 36px); margin-right: 18px; margin-left: 18px; }
   .entry-grid .field-label { padding-left: 18px; }
-  .upload-zone { margin-right: 18px; margin-left: 18px; }
+  .upload-zone, .csv-guidance { margin-right: 18px; margin-left: 18px; }
   .demo-strip { grid-template-columns: 1fr auto; }
   .demo-orbit { writing-mode: horizontal-tb; transform: none; grid-column: 1 / -1; }
   .workspace-meta { align-items: flex-start; flex-direction: column; gap: 8px; }

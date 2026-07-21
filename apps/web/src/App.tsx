@@ -544,6 +544,17 @@ function Landing({
             <div className="upload-copy"><FileUp size={17} /><div><strong>{fileName}</strong><span>UTF-8 CSV · arbitrary headers · profile before interpretation</span></div></div>
             <label className="text-button">REPLACE<input type="file" accept=".csv,text/csv" onChange={(event) => handleFile(event.target.files?.[0])} /></label>
           </div>
+          <div className="csv-guidance" aria-label="CSV guidance">
+            <div>
+              <strong>What GroundLoop reads first</strong>
+              <span>Header names, numeric columns, ranges, and simple shape. Scientific meaning is assigned later by Codex through the Run contract.</span>
+            </div>
+            <div className="csv-requirements" aria-label="Accepted CSV shape">
+              <span>First row = headers</span>
+              <span>Numeric columns ok</span>
+              <span>Units in names ok</span>
+            </div>
+          </div>
           <div className="entry-footer"><span className="tiny-note"><LockKeyhole size={13} /> Raw file stays in the local Run boundary.</span><button className="primary-button" type="button" disabled={busy || !claim.trim() || datasetCsv.length < 20} onClick={() => void onCreate({ claim, methods, datasetCsv, fileName })}>{busy ? "CREATING RUN…" : "CREATE GROUNDLOOP RUN"}<ArrowRight size={16} /></button></div>
         </div>
       </section>
