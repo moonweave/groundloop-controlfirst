@@ -1,0 +1,5 @@
+{
+  "name": "generic_spectrum",
+  "kind": "LABELLED_DEMO",
+  "scope": "Generic spectrum workflow demonstration; not a Raman, PL, or XRD domain recipe."
+}

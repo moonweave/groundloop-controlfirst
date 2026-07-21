@@ -8,16 +8,22 @@ from typing import Any
 
 from .analysis import parse_dataset, screen_source_relevance, source_refs
 from .convergence import legacy_projection, preview_map, validate_alignment_records
+from .generic_tabular import infer_modality, materialize_evidence, profile_csv
 from .models import (
     AuditEvent,
     AlignmentAdjudication,
     ClaimInput,
     ConvergenceMap,
     ControlProposal,
+    DataEvidence,
+    DatasetArtifact,
+    DatasetBinding,
     DatasetAnalysis,
+    DatasetProfile,
     EvidenceRef,
     Finding,
     MechanismVerdict,
+    MeasurementModalityProposal,
     Report,
     RequiredSignature,
     RunState,
@@ -72,6 +78,99 @@ class RunStore:
             summary="Local research run created.",
         )
         return summary
+
+    def create_generic_run(
+        self,
+        claim: ClaimInput,
+        methods: str,
+        dataset: bytes,
+        sources: list[SourceInput] | None = None,
+        *,
+        filename: str = "dataset.csv",
+        provenance: str = "USER_MEASUREMENT",
+    ) -> dict[str, Any]:
+        """Create a v2, domain-neutral Run from one bounded tabular artifact.
+
+        The same filesystem Run is used as v1, but v2 never calls the transport
+        parser unless a researcher later confirms that optional recipe.
+        """
+        if len(methods.strip()) < 20 or len(methods) > 20_000:
+            raise ValueError("methods must contain 20–20,000 characters")
+        if sources is not None and len(sources) > 20:
+            raise ValueError("at most 20 source candidates are supported")
+        artifact, profile = profile_csv(dataset)
+        summary = self.create_run()
+        summary = summary.model_copy(update={"schema_version": 2, "workflow": "generic_v2"})
+        run = self._run_dir(summary.run_id)
+        self._write(run / "manifest.json", summary.model_dump(mode="json"))
+        artifact = artifact.model_copy(update={"filename": filename, "provenance": provenance})
+        self._write(run / "inputs" / "claim.json", claim.model_dump(mode="json"))
+        self._write(run / "inputs" / "sources.json", [item.model_dump(mode="json") for item in sources or []])
+        (run / "inputs" / "methods.md").write_text(methods, encoding="utf-8")
+        (run / "inputs" / "dataset.csv").write_bytes(dataset)
+        self._write(run / "inputs" / "dataset-artifact.json", artifact.model_dump(mode="json"))
+        self._write(run / "inputs" / "dataset-profile.json", profile.model_dump(mode="json"))
+        self._write(run / "inputs" / "modality-proposal.json", infer_modality(profile, methods))
+        self._write(run / "inputs" / "dataset-provenance.json", {"kind": provenance})
+        self._record_event(run, action="generic_dataset_profiled", state=RunState.DRAFT, summary=f"Profiled {profile.row_count} rows and {profile.column_count} columns without selecting a measurement recipe.")
+        return self.get_detail(summary.run_id)
+
+    def create_generic_fixture_run(self, fixture_root: Path | str) -> dict[str, Any]:
+        root = Path(fixture_root).resolve()
+        required = ("claim.json", "methods.md", "dataset.csv", "sources.json")
+        missing = [name for name in required if not (root / name).is_file()]
+        if missing:
+            raise ValueError(f"fixture is missing: {', '.join(missing)}")
+        return self.create_generic_run(
+            ClaimInput.model_validate(self._read(root / "claim.json")),
+            (root / "methods.md").read_text(encoding="utf-8"),
+            (root / "dataset.csv").read_bytes(),
+            [SourceInput.model_validate(item) for item in self._read(root / "sources.json")],
+            filename="dataset.csv", provenance="LABELLED_DEMO",
+        )
+
+    def inspect_dataset_profile(self, run_id: str) -> dict[str, Any]:
+        run = self._run_dir(run_id)
+        if self.get_summary(run_id).workflow != "generic_v2":
+            raise ValueError("dataset profiles are available through the generic v2 workflow")
+        return {
+            "artifact": self._read(run / "inputs" / "dataset-artifact.json"),
+            "profile": self._read(run / "inputs" / "dataset-profile.json"),
+            "modality_proposal": self._read(run / "inputs" / "modality-proposal.json"),
+            "binding": self._read(run / "inputs" / "dataset-binding.json") if (run / "inputs" / "dataset-binding.json").is_file() else None,
+        }
+
+    def propose_measurement_modality(self, run_id: str) -> dict[str, Any]:
+        run = self._require_draft(run_id)
+        if self.get_summary(run_id).workflow != "generic_v2":
+            raise ValueError("measurement routing is available through the generic v2 workflow")
+        profile = DatasetProfile.model_validate(self._read(run / "inputs" / "dataset-profile.json"))
+        methods = (run / "inputs" / "methods.md").read_text(encoding="utf-8")
+        proposal = MeasurementModalityProposal.model_validate(infer_modality(profile, methods))
+        self._write(run / "inputs" / "modality-proposal.json", proposal.model_dump(mode="json"))
+        return proposal.model_dump(mode="json")
+
+    def set_dataset_binding(self, run_id: str, binding: DatasetBinding, recipe: str = "generic") -> dict[str, Any]:
+        run = self._require_draft(run_id)
+        if self.get_summary(run_id).workflow != "generic_v2":
+            raise ValueError("dataset binding is available through the generic v2 workflow")
+        artifact = DatasetArtifact.model_validate(self._read(run / "inputs" / "dataset-artifact.json"))
+        profile = DatasetProfile.model_validate(self._read(run / "inputs" / "dataset-profile.json"))
+        if binding.artifact_id != artifact.artifact_id:
+            raise ValueError("binding must target the frozen run artifact")
+        known = {column.column_id for column in profile.columns}
+        assigned = [binding.x_column_id, *binding.y_column_ids, binding.group_column_id, binding.acquisition_order_column_id]
+        if any(item not in known for item in assigned if item):
+            raise ValueError("binding references an unknown column")
+        if any(column_id not in known for column_id in binding.confirmed_units):
+            raise ValueError("confirmed units reference an unknown column")
+        if recipe not in {"generic", "generic_spectrum", "generic_sweep", "generic_time_series", "generic_cyclic_trace", "grouped_comparison", "electrical_transport_rt", "actuator_dynamics"}:
+            raise ValueError("unsupported measurement recipe")
+        self._write(run / "inputs" / "dataset-binding.json", binding.model_dump(mode="json"))
+        self._write(run / "inputs" / "recipe.json", {"id": recipe, "version": "1", "confirmed_by": "researcher", "confirmed_at": now_iso()})
+        self._write(run / "inputs" / "binding-invalidated.json", {"invalid": False, "at": now_iso()})
+        self._record_event(run, action="dataset_binding_confirmed", state=RunState.DRAFT, summary=f"Researcher confirmed binding and '{recipe}' recipe selection.")
+        return self.inspect_dataset_profile(run_id)
 
     def create_codex_run(
         self,
@@ -253,6 +352,8 @@ class RunStore:
         """Validate and persist a partial draft update without partial writes."""
 
         run = self._require_draft(run_id)
+        if self.get_summary(run_id).workflow == "generic_v2":
+            return self._update_generic_editable_inputs(run_id, run, claim, methods, dataset, sources)
         if methods is not None and (len(methods.strip()) < 20 or len(methods) > 20_000):
             raise ValueError("methods must contain 20–20,000 characters")
         if dataset is not None:
@@ -269,6 +370,44 @@ class RunStore:
             self._write(run / "inputs" / "dataset-provenance.json", {"kind": "USER_MEASUREMENT"})
         if sources is not None:
             self._write(run / "inputs" / "sources.json", [source.model_dump(mode="json") for source in sources])
+        return self.get_detail(run_id)
+
+    def _update_generic_editable_inputs(
+        self,
+        run_id: str,
+        run: Path,
+        claim: ClaimInput | None,
+        methods: str | None,
+        dataset: bytes | None,
+        sources: list[SourceInput] | None,
+    ) -> dict[str, Any]:
+        """Atomically update v2 editable inputs and invalidate stale binding on semantic changes."""
+        if methods is not None and (len(methods.strip()) < 20 or len(methods) > 20_000):
+            raise ValueError("methods must contain 20–20,000 characters")
+        if sources is not None and len(sources) > 20:
+            raise ValueError("at most 20 source candidates are supported")
+        artifact: DatasetArtifact | None = None
+        profile: DatasetProfile | None = None
+        if dataset is not None:
+            artifact, profile = profile_csv(dataset)
+            previous = DatasetArtifact.model_validate(self._read(run / "inputs" / "dataset-artifact.json"))
+            artifact = artifact.model_copy(update={"filename": previous.filename, "provenance": previous.provenance})
+        next_methods = methods if methods is not None else (run / "inputs" / "methods.md").read_text(encoding="utf-8")
+        next_profile = profile or DatasetProfile.model_validate(self._read(run / "inputs" / "dataset-profile.json"))
+        if claim is not None:
+            self._write(run / "inputs" / "claim.json", claim.model_dump(mode="json"))
+        if methods is not None:
+            (run / "inputs" / "methods.md").write_text(methods, encoding="utf-8")
+        if dataset is not None and artifact and profile:
+            (run / "inputs" / "dataset.csv").write_bytes(dataset)
+            self._write(run / "inputs" / "dataset-artifact.json", artifact.model_dump(mode="json"))
+            self._write(run / "inputs" / "dataset-profile.json", profile.model_dump(mode="json"))
+        if sources is not None:
+            self._write(run / "inputs" / "sources.json", [item.model_dump(mode="json") for item in sources])
+        if dataset is not None or methods is not None:
+            self._write(run / "inputs" / "binding-invalidated.json", {"invalid": True, "at": now_iso()})
+            self._record_event(run, action="generic_binding_invalidated", state=RunState.DRAFT, summary="Method or artifact changed; researcher confirmation of binding and recipe is required again.")
+        self._write(run / "inputs" / "modality-proposal.json", infer_modality(next_profile, next_methods))
         return self.get_detail(run_id)
 
     def save_research_setup(self, run_id: str, claim: ClaimInput, sources: list[SourceInput]) -> RunSummary:
@@ -341,6 +480,9 @@ class RunStore:
 
     def update_methods(self, run_id: str, methods: str) -> RunSummary:
         run = self._require_draft(run_id)
+        if self.get_summary(run_id).workflow == "generic_v2":
+            self.update_editable_inputs(run_id, methods=methods)
+            return self.get_summary(run_id)
         if len(methods.strip()) < 20 or len(methods) > 20_000:
             raise ValueError("methods must contain 20–20,000 characters")
         methods_path = run / "inputs" / "methods.md"
@@ -384,10 +526,16 @@ class RunStore:
             state=RunState.DRAFT,
             summary=f"Semantic review assigned roles to {len(adjudications)} source candidate(s); {len(selected)} direct source(s) remain eligible.",
         )
+        if self.get_summary(run_id).workflow == "generic_v2":
+            return self._get_generic_detail(self.get_summary(run_id), run)["draft"]
         return self._draft(run)
 
     def update_dataset(self, run_id: str, dataset: bytes) -> dict[str, Any]:
         run = self._require_draft(run_id)
+        if self.get_summary(run_id).workflow == "generic_v2":
+            detail = self.update_editable_inputs(run_id, dataset=dataset)
+            profile = self.inspect_dataset_profile(run_id)
+            return {"run": detail["run"], "artifact": profile["artifact"], "dataset_profile": profile["profile"], "modality_proposal": profile["modality_proposal"]}
         analysis, ref = parse_dataset(dataset)
         (run / "inputs" / "dataset.csv").write_bytes(dataset)
         self._write(run / "inputs" / "dataset-provenance.json", {"kind": "USER_MEASUREMENT"})
@@ -436,6 +584,8 @@ class RunStore:
 
     def prepare_packet(self, run_id: str) -> dict[str, Any]:
         run = self._require_state(run_id, RunState.DRAFT)
+        if self.get_summary(run_id).workflow == "generic_v2":
+            return self._prepare_generic_packet(run_id, run)
         self._require_retrieval_adjudication(run)
         claim, sources, methods, raw = self._load_inputs(run)
         if not sources:
@@ -463,6 +613,45 @@ class RunStore:
             summary=f"Evidence packet frozen with {len(sources)} selected source(s) and one local dataset.",
         ).model_dump(mode="json")
 
+    def _prepare_generic_packet(self, run_id: str, run: Path) -> dict[str, Any]:
+        """Freeze v2 inputs without treating the raw CSV as a scientific fact."""
+        claim, sources, methods, raw = self._load_inputs(run)
+        if not sources:
+            raise ValueError("at least one reviewed direct source is required before freezing")
+        if not (run / "analysis" / "source-adjudication.json").is_file():
+            raise ValueError("source roles must be reviewed before freezing")
+        binding_path = run / "inputs" / "dataset-binding.json"
+        if not binding_path.is_file():
+            raise ValueError("researcher must confirm the dataset binding before freezing")
+        invalidated_path = run / "inputs" / "binding-invalidated.json"
+        if invalidated_path.is_file() and self._read(invalidated_path).get("invalid"):
+            raise ValueError("method or dataset changed; researcher must reconfirm the dataset binding before freezing")
+        artifact = DatasetArtifact.model_validate(self._read(run / "inputs" / "dataset-artifact.json"))
+        profile = DatasetProfile.model_validate(self._read(run / "inputs" / "dataset-profile.json"))
+        binding = DatasetBinding.model_validate(self._read(binding_path))
+        source_review = self._selected_source_review(run, sources)
+        method_ref = EvidenceRef(
+            id="method-evidence-frozen", kind="method", artifact_id="method-001",
+            locator={"section": "frozen-method-context"}, excerpt=methods[:1000],
+            sha256=__import__("hashlib").sha256(methods.encode("utf-8")).hexdigest(),
+        )
+        packet = {
+            "schema_version": 2,
+            "claim": claim.model_dump(mode="json"),
+            "sources": [source.model_dump(mode="json") for source in sources],
+            "source_relevance": [item.model_dump(mode="json") for item in screen_source_relevance(claim, sources)],
+            "methods": methods,
+            "artifact": artifact.model_dump(mode="json"),
+            "dataset_profile": profile.model_dump(mode="json"),
+            "dataset_binding": binding.model_dump(mode="json"),
+            "recipe": self._read(run / "inputs" / "recipe.json"),
+            "dataset_provenance": self._dataset_provenance(run),
+            "evidence_refs": [*(item.model_dump(mode="json") for item in source_refs(sources)), method_ref.model_dump(mode="json")],
+            "source_review": source_review,
+        }
+        self._write(run / "analysis" / "evidence-packet.json", packet)
+        return self._transition(run_id, RunState.PACKET_READY, action="generic_evidence_packet_frozen", summary=f"Frozen one bounded CSV artifact, confirmed binding, and {len(sources)} reviewed source(s).").model_dump(mode="json")
+
     def inspect_sources(self, run_id: str, expectations: list[dict[str, Any]]) -> dict[str, Any]:
         run = self._require_state(run_id, RunState.PACKET_READY)
         packet = self._packet(run)
@@ -487,6 +676,10 @@ class RunStore:
     def analyze_dataset(self, run_id: str) -> dict[str, Any]:
         run = self._require_state(run_id, RunState.SOURCES_INSPECTED)
         packet = self._packet(run)
+        if self.get_summary(run_id).workflow == "generic_v2":
+            payload = {"dataset_profile": packet["dataset_profile"], "analyzed_at": now_iso()}
+            self._write(run / "analysis" / "dataset-analysis.json", payload)
+            return self._transition(run_id, RunState.DATA_ANALYZED, action="generic_dataset_profile_confirmed", summary="Generic tabular profile is available; materialize deterministic data evidence before adjudicating observations.").model_dump(mode="json")
         payload = {"dataset": packet["dataset"], "analyzed_at": now_iso()}
         self._write(run / "analysis" / "dataset-analysis.json", payload)
         return self._transition(
@@ -495,6 +688,33 @@ class RunStore:
             action="dataset_analyzed",
             summary="Codex saved deterministic analysis of the frozen dataset.",
         ).model_dump(mode="json")
+
+    def materialize_data_evidence(
+        self, run_id: str, operation: str, selected_columns: list[str], row_start: int, row_end: int,
+        parameters: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Materialize a reproducible v2 data fact using the allowlisted engine."""
+        run = self._run_dir(run_id)
+        if self.get_summary(run_id).workflow != "generic_v2":
+            raise ValueError("materialized generic evidence is available through the generic v2 workflow")
+        state = self.get_summary(run_id).state
+        if state not in {RunState.SOURCES_INSPECTED, RunState.DATA_ANALYZED}:
+            raise ValueError("materialize data evidence after source inspection and before alignment adjudication")
+        packet = self._packet(run)
+        artifact = DatasetArtifact.model_validate(packet["artifact"])
+        profile = DatasetProfile.model_validate(packet["dataset_profile"])
+        binding = DatasetBinding.model_validate(packet["dataset_binding"])
+        evidence = materialize_evidence((run / "inputs" / "dataset.csv").read_bytes(), artifact, profile, binding, operation, selected_columns, row_start, row_end, parameters)
+        path = run / "analysis" / "data-evidence.json"
+        existing = self._read(path).get("evidence", []) if path.is_file() else []
+        by_id = {item["evidence_id"]: item for item in existing}
+        by_id[evidence.evidence_id] = evidence.model_dump(mode="json")
+        self._write(path, {"evidence": list(by_id.values()), "updated_at": now_iso()})
+        if state == RunState.SOURCES_INSPECTED:
+            self._transition(run_id, RunState.DATA_ANALYZED, action="data_evidence_materialized", summary=f"Materialized {operation} evidence from the frozen generic artifact.")
+        else:
+            self._record_event(run, action="data_evidence_materialized", state=RunState.DATA_ANALYZED, summary=f"Materialized {operation} evidence from the frozen generic artifact.")
+        return evidence.model_dump(mode="json")
 
     def record_signatures(
         self, run_id: str, signatures: list[RequiredSignature]
@@ -535,7 +755,15 @@ class RunStore:
             raise ValueError("record required signatures before alignment adjudications")
         signatures = [RequiredSignature.model_validate(item) for item in self._read(signatures_path)["signatures"]]
         packet = self._packet(run)
-        refs = [EvidenceRef.model_validate(item) for item in packet["evidence_refs"]]
+        refs = self._run_evidence_refs(run, packet)
+        if self.get_summary(run_id).workflow == "generic_v2":
+            known = {ref.id: ref for ref in refs}
+            for alignment in alignments:
+                linked = [known[item] for item in alignment.evidence_ref_ids if item in known]
+                if alignment.status in {"Observed", "Contradicted"} and not any(item.id.startswith("data-evidence-") for item in linked):
+                    raise ValueError(f"{alignment.status} alignment requires GroundLoop-materialized data evidence")
+                if alignment.status == "Confounded" and (not any(item.id.startswith("data-evidence-") for item in linked) or not any(item.kind in {"source", "method"} for item in linked)):
+                    raise ValueError("Confounded alignment requires materialized data evidence and a method or source boundary")
         checked = validate_alignment_records(signatures, alignments, refs)
         self._write(
             run / "analysis" / "alignments.json",
@@ -608,8 +836,10 @@ class RunStore:
             summary="Codex saved one primary ControlFirst experiment with two discriminating outcomes.",
         ).model_dump(mode="json")
 
-    def export_report(self, run_id: str) -> Report:
+    def export_report(self, run_id: str) -> Report | dict[str, Any]:
         run = self._require_state(run_id, RunState.CONTROL_VALIDATED)
+        if self.get_summary(run_id).workflow == "generic_v2":
+            return self._export_generic_report(run_id, run)
         packet = self._packet(run)
         control = ControlProposal.model_validate(self._read(run / "report" / "control.json")["control"])
         from .models import DatasetAnalysis
@@ -673,9 +903,11 @@ class RunStore:
         )
         return report
 
-    def get_report(self, run_id: str) -> Report:
+    def get_report(self, run_id: str) -> Report | dict[str, Any]:
         if self.get_summary(run_id).state != RunState.EXPORTED:
             raise ValueError("run must be EXPORTED")
+        if self.get_summary(run_id).workflow == "generic_v2":
+            return self._read(self._run_dir(run_id) / "report" / "report.json")
         payload = self._read(self._run_dir(run_id) / "report" / "report.json")
         # Existing local demo runs predate the explicit verdict contract. They remain
         # readable, but are rendered with the same conservative red-team verdict.
@@ -693,6 +925,8 @@ class RunStore:
         """Return the persisted map, a legacy projection, or an explicit draft preview."""
 
         run = self._run_dir(run_id)
+        if self.get_summary(run_id).workflow == "generic_v2":
+            return self._generic_convergence_map(run_id, run)
         report_path = run / "report" / "report.json"
         if report_path.is_file() and self.get_summary(run_id).state == RunState.EXPORTED:
             report = self.get_report(run_id)
@@ -750,12 +984,115 @@ class RunStore:
         source_refs_for_preview = [item.id for item in source_refs(sources)]
         return preview_map(claim["claim"], draft["methods"], dataset, data_ref.id, source_refs_for_preview)
 
+    def _run_evidence_refs(self, run: Path, packet: dict[str, Any]) -> list[EvidenceRef]:
+        refs = [EvidenceRef.model_validate(item) for item in packet["evidence_refs"]]
+        evidence_path = run / "analysis" / "data-evidence.json"
+        if not evidence_path.is_file():
+            return refs
+        for raw_evidence in self._read(evidence_path).get("evidence", []):
+            evidence = DataEvidence.model_validate(raw_evidence)
+            refs.append(EvidenceRef(
+                id=evidence.evidence_id, kind="data", artifact_id=evidence.artifact_id,
+                locator={"columns": evidence.selected_columns, "row_start": evidence.row_start, "row_end": evidence.row_end},
+                excerpt=evidence.fact_text, sha256=evidence.operation_sha256,
+            ))
+        return refs
+
+    def _generic_default_signatures(self, claim: str, source_ref_ids: list[str]) -> list[RequiredSignature]:
+        return [
+            RequiredSignature(
+                id="signature-measured-response", name="Measured response",
+                requirement="The frozen artifact must contain the response named by the claim.",
+                expected_observation="A reproducible data-evidence operation identifies the claimed pattern.",
+                falsifying_outcome="The materialized operation does not show the claimed pattern.",
+                theory_evidence_ref_ids=source_ref_ids[:1],
+            ),
+            RequiredSignature(
+                id="signature-attribution", name="Mechanism attribution",
+                requirement="The measured response must be distinguishable from relevant alternatives.",
+                expected_observation="The method and control boundary separate the proposed mechanism from alternatives.",
+                falsifying_outcome="A compatible alternative remains inseparable in the frozen boundary.",
+                theory_evidence_ref_ids=source_ref_ids[:1],
+            ),
+            RequiredSignature(
+                id="signature-specificity", name="Mechanism specificity",
+                requirement="A mechanism-specific condition must be measured rather than inferred from a generic trend.",
+                expected_observation="A predeclared discriminating signature is present in a capable measurement.",
+                falsifying_outcome="Only a non-specific pattern is present or the signature was not measured.",
+                theory_evidence_ref_ids=source_ref_ids[:1],
+            ),
+        ]
+
+    @staticmethod
+    def _generic_dominant_gap(signatures: list[RequiredSignature], alignments: list[AlignmentAdjudication]) -> str:
+        by_id = {item.id: item for item in signatures}
+        priority = {"Contradicted": 0, "Confounded": 1, "Missing": 2, "Observed": 3}
+        target = sorted(alignments, key=lambda item: priority[item.status])[0]
+        name = by_id[target.signature_id].name
+        if target.status == "Confounded":
+            detail = target.alternative_explanation or "a named alternative explanation"
+            return f"{name} is confounded: {detail} remains inseparable within the frozen method and data boundary."
+        if target.status == "Missing":
+            return f"{name} is missing: {target.missing_reason or 'the required condition was not recorded'} within the frozen boundary."
+        if target.status == "Contradicted":
+            return f"{name} is contradicted by the cited materialized data evidence."
+        return "All currently recorded signatures are observed within the frozen evidence boundary."
+
+    def _generic_convergence_map(self, run_id: str, run: Path) -> ConvergenceMap:
+        report_path = run / "report" / "report.json"
+        if report_path.is_file() and self.get_summary(run_id).state == RunState.EXPORTED:
+            return ConvergenceMap.model_validate(self._read(report_path)["convergence"])
+        claim = self._read(run / "inputs" / "claim.json")["claim"]
+        methods = (run / "inputs" / "methods.md").read_text(encoding="utf-8")
+        source_ids: list[str] = []
+        packet_path = run / "analysis" / "evidence-packet.json"
+        if packet_path.is_file():
+            packet = self._read(packet_path)
+            source_ids = [item["id"] for item in packet["evidence_refs"] if item["kind"] == "source"]
+        else:
+            source_ids = [item.id for item in source_refs([SourceInput.model_validate(item) for item in self._read(run / "inputs" / "sources.json")])]
+        signatures_path = run / "analysis" / "signatures.json"
+        signatures = [RequiredSignature.model_validate(item) for item in self._read(signatures_path)["signatures"]] if signatures_path.is_file() else self._generic_default_signatures(claim, source_ids)
+        alignments_path = run / "analysis" / "alignments.json"
+        alignments = [AlignmentAdjudication.model_validate(item) for item in self._read(alignments_path)["alignments"]] if alignments_path.is_file() else [
+            AlignmentAdjudication(signature_id=item.id, status="Missing", rationale="Codex has not yet adjudicated this required signature against materialized evidence.", missing_reason="required_condition_not_recorded") for item in signatures
+        ]
+        control_path = run / "report" / "control.json"
+        control = ControlProposal.model_validate(self._read(control_path)["control"]) if control_path.is_file() else None
+        return ConvergenceMap(
+            claim=claim, measurement_method=methods, signatures=signatures, alignments=alignments,
+            dominant_gap=self._generic_dominant_gap(signatures, alignments), control=control,
+            freeze_status="FROZEN" if packet_path.is_file() else "DRAFT", recorded_at=now_iso(),
+        )
+
+    def _export_generic_report(self, run_id: str, run: Path) -> dict[str, Any]:
+        packet = self._packet(run)
+        convergence = self._generic_convergence_map(run_id, run).model_copy(update={"freeze_status": "FROZEN"})
+        statuses = {item.status for item in convergence.alignments}
+        label = "CONTRADICTED_BY_CURRENT_EVIDENCE" if "Contradicted" in statuses else "NOT_ESTABLISHED" if statuses & {"Confounded", "Missing"} else "SUPPORTED_WITHIN_FROZEN_BOUNDARY"
+        control = ControlProposal.model_validate(self._read(run / "report" / "control.json")["control"])
+        data_evidence = self._read(run / "analysis" / "data-evidence.json").get("evidence", []) if (run / "analysis" / "data-evidence.json").is_file() else []
+        report = {
+            "schema_version": 2, "run_id": run_id, "claim": packet["claim"]["claim"], "state": "EXPORTED",
+            "artifact": packet["artifact"], "dataset_profile": packet["dataset_profile"], "dataset_binding": packet["dataset_binding"],
+            "recipe": packet["recipe"], "sources": packet["sources"], "source_review": packet.get("source_review"),
+            "methods": packet["methods"], "data_evidence": data_evidence, "control": control.model_dump(mode="json", by_alias=True),
+            "convergence": convergence.model_dump(mode="json", by_alias=True),
+            "verdict": {"label": label, "reason": convergence.dominant_gap, "blocking_signature_ids": [item.signature_id for item in convergence.alignments if item.status != "Observed"]},
+            "exported_at": now_iso(),
+        }
+        self._write(run / "report" / "report.json", report)
+        self._transition(run_id, RunState.EXPORTED, action="generic_decision_exported", summary="Evidence-bound generic research decision exported.")
+        return report
+
     def get_packet(self, run_id: str) -> dict[str, Any]:
         return self._packet(self._run_dir(run_id))
 
     def get_detail(self, run_id: str) -> dict[str, Any]:
         summary = self.get_summary(run_id)
         run = self._run_dir(run_id)
+        if summary.workflow == "generic_v2":
+            return self._get_generic_detail(summary, run)
         result: dict[str, Any] = {
             "run": summary.model_dump(mode="json"),
             "timeline": self._timeline(run),
@@ -774,6 +1111,31 @@ class RunStore:
             result["report"] = self.get_report(run_id).model_dump(
                 mode="json", by_alias=True
             )
+        return result
+
+    def _get_generic_detail(self, summary: RunSummary, run: Path) -> dict[str, Any]:
+        result: dict[str, Any] = {"run": summary.model_dump(mode="json"), "timeline": self._timeline(run)}
+        if summary.state == RunState.DRAFT:
+            binding_invalidated = (self._read(run / "inputs" / "binding-invalidated.json").get("invalid", False) if (run / "inputs" / "binding-invalidated.json").is_file() else False)
+            result["input_artifacts"] = sorted(path.name for path in (run / "inputs").iterdir() if path.is_file())
+            result["draft"] = {
+                "claim": self._read(run / "inputs" / "claim.json"),
+                "methods": (run / "inputs" / "methods.md").read_text(encoding="utf-8"),
+                "sources": self._read(run / "inputs" / "sources.json"),
+                "artifact": self._read(run / "inputs" / "dataset-artifact.json"),
+                "dataset_profile": self._read(run / "inputs" / "dataset-profile.json"),
+                "modality_proposal": self._read(run / "inputs" / "modality-proposal.json"),
+                "dataset_binding": self._read(run / "inputs" / "dataset-binding.json") if (run / "inputs" / "dataset-binding.json").is_file() and not binding_invalidated else None,
+                "recipe": self._read(run / "inputs" / "recipe.json") if (run / "inputs" / "recipe.json").is_file() else None,
+            }
+        else:
+            result["packet"] = self._packet(run)
+        result["convergence"] = self._generic_convergence_map(summary.run_id, run).model_dump(mode="json", by_alias=True)
+        evidence_path = run / "analysis" / "data-evidence.json"
+        if evidence_path.is_file():
+            result["data_evidence"] = self._read(evidence_path).get("evidence", [])
+        if summary.state == RunState.EXPORTED:
+            result["report"] = self._read(run / "report" / "report.json")
         return result
 
     def _draft(self, run: Path) -> dict[str, Any]:
@@ -854,6 +1216,8 @@ class RunStore:
         return kind
 
     def get_report_markdown(self, run_id: str) -> str:
+        if self.get_summary(run_id).workflow == "generic_v2":
+            return self._generic_report_markdown(run_id)
         report = self.get_report(run_id)
         groups = {status: [item for item in report.findings if item.status == status] for status in ("Established", "Observed", "Inferred", "Unresolved")}
         lines = [
@@ -974,6 +1338,42 @@ class RunStore:
             locator = source.locator.section or (f"page {source.locator.page}" if source.locator.page else "provided excerpt")
             status = "arXiv preprint, not peer-reviewed" if source.retrieval_provider == "arxiv" else "OpenAlex indexed abstract"
             lines.append(f"- {source.id}: {source.title} ({source.year}), {status}, {locator}")
+        return "\n".join(lines) + "\n"
+
+    def _generic_report_markdown(self, run_id: str) -> str:
+        report = self._read(self._run_dir(run_id) / "report" / "report.json")
+        convergence = ConvergenceMap.model_validate(report["convergence"])
+        profile = DatasetProfile.model_validate(report["dataset_profile"])
+        binding = DatasetBinding.model_validate(report["dataset_binding"])
+        lines = [
+            "# GroundLoop research decision", "", f"**Run:** `{report['run_id']}`", "", "## Claim", "", report["claim"], "",
+            "## Evidence boundary", "", f"- Artifact: `{report['artifact']['filename']}` (`{report['artifact']['sha256']}`)",
+            f"- Profile: {profile.row_count} rows × {profile.column_count} columns; row order preserved.",
+            f"- Recipe: `{report['recipe']['id']}` v{report['recipe']['version']}",
+            f"- Binding: X `{binding.x_column_id}`; Y {', '.join(binding.y_column_ids)}", "",
+            "## Verdict", "", f"**{report['verdict']['label'].replace('_', ' ')}** — {report['verdict']['reason']}", "",
+            "## Required signatures", "",
+        ]
+        for signature in convergence.signatures:
+            lines.extend([f"- `{signature.id}` — **{signature.name}**", f"  - Requirement: {signature.requirement}", f"  - Expected observation: {signature.expected_observation}", f"  - Falsifying outcome: {signature.falsifying_outcome}", f"  - Theory evidence: {', '.join(signature.theory_evidence_ref_ids) or 'none recorded'}"])
+        lines.extend(["", "## Materialized data evidence", ""])
+        for evidence in report.get("data_evidence", []):
+            lines.extend([f"- `{evidence['evidence_id']}` — **{evidence['operation']}**", f"  - Selector: columns {', '.join(evidence['selected_columns'])}; rows {evidence['row_start']}–{evidence['row_end']}", f"  - Fact: {evidence['fact_text']}", f"  - Operation hash: `{evidence['operation_sha256']}`"])
+        lines.extend(["", "## Signature alignments", ""])
+        for alignment in convergence.alignments:
+            lines.extend([f"- `{alignment.signature_id}` — **{alignment.status}**", f"  - Rationale: {alignment.rationale}", f"  - Evidence: {', '.join(alignment.evidence_ref_ids) or 'none recorded'}"])
+            if alignment.alternative_explanation:
+                lines.append(f"  - Alternative explanation: {alignment.alternative_explanation}")
+            if alignment.missing_reason:
+                lines.append(f"  - Missing reason: {alignment.missing_reason}")
+        lines.extend(["", "## Dominant gap", "", convergence.dominant_gap, "", "## Source roles", ""])
+        for review in (report.get("source_review") or {}).get("adjudications", []):
+            lines.extend([f"- `{review['source_id']}` — **{(review.get('role') or 'unassigned').replace('_', ' ')}** ({review['verdict']})", f"  - Rationale: {review['rationale']}"])
+        control = convergence.control
+        lines.extend(["", "## Control contract", ""])
+        if control:
+            lines.extend([f"- Confound: {control.confound}", f"- Primary experiment: {control.experiment}", f"- Fixed conditions: {', '.join(control.preconditions)}", f"- Closes signatures: {', '.join(control.closes_signature_ids)}", f"- Leaves open signatures: {', '.join(control.leaves_open_signature_ids)}", "- Outcomes:"])
+            lines.extend([f"  - If {outcome.if_}, then {outcome.then}" for outcome in control.outcomes])
         return "\n".join(lines) + "\n"
 
     def _run_dir(self, run_id: str) -> Path:

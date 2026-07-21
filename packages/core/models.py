@@ -67,7 +67,7 @@ class AuditEvent(StrictModel):
 
 class EvidenceRef(StrictModel):
     id: str = Field(min_length=3, max_length=120)
-    kind: Literal["source", "data"]
+    kind: Literal["source", "method", "data"]
     artifact_id: str
     locator: Locator
     excerpt: str = Field(min_length=1, max_length=1000)
@@ -113,7 +113,7 @@ class AlignmentAdjudication(StrictModel):
     evidence_ref_ids: list[str] = Field(default_factory=list, max_length=20)
     alternative_explanation: str | None = Field(default=None, max_length=500)
     missing_reason: Literal[
-        "not_measured", "not_specified_by_theory", "outside_method_capability", "data_quality_insufficient"
+        "not_measured", "not_specified_by_theory", "theory_prediction_unspecified", "outside_method_capability", "data_quality_insufficient", "required_condition_not_recorded"
     ] | None = None
 
 
@@ -201,6 +201,117 @@ class RunSummary(StrictModel):
     run_id: str
     state: RunState
     fixture: str | None = None
+    created_at: str
+    schema_version: int = Field(default=1, ge=1, le=2)
+    workflow: Literal["transport_v1", "generic_v2"] = "transport_v1"
+
+
+class UnitDescriptor(StrictModel):
+    """A unit inferred from a header is only a candidate until a researcher confirms it."""
+
+    value: str | None = Field(default=None, max_length=32)
+    source: Literal["header", "user", "none"] = "none"
+    status: Literal["unknown", "candidate", "confirmed"] = "unknown"
+
+
+class NumericSummary(StrictModel):
+    min: float
+    max: float
+    mean: float
+    median: float
+    std: float
+
+
+class ColumnProfile(StrictModel):
+    column_id: str = Field(pattern=r"^col-[0-9]{3}$")
+    name: str = Field(min_length=1, max_length=200)
+    index: int = Field(ge=0)
+    inferred_type: Literal["integer", "numeric", "datetime", "boolean", "categorical", "text", "empty"]
+    unit: UnitDescriptor
+    missing_count: int = Field(ge=0)
+    missing_fraction: float = Field(ge=0, le=1)
+    unique_count: int = Field(ge=0)
+    numeric_summary: NumericSummary | None = None
+
+
+class DatasetArtifact(StrictModel):
+    artifact_id: str = Field(pattern=r"^artifact-[a-zA-Z0-9_-]+$")
+    filename: str = Field(min_length=1, max_length=255)
+    media_type: Literal["text/csv"] = "text/csv"
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    byte_count: int = Field(ge=1, le=5 * 1024 * 1024)
+    provenance: Literal["USER_MEASUREMENT", "LABELLED_DEMO", "FIXTURE_DEMO"] = "USER_MEASUREMENT"
+    imported_at: str
+    schema_version: Literal[2] = 2
+
+
+class DatasetProfile(StrictModel):
+    artifact_id: str
+    row_count: int = Field(ge=1, le=10_000)
+    column_count: int = Field(ge=1, le=128)
+    row_order_preserved: Literal[True] = True
+    columns: list[ColumnProfile] = Field(min_length=1, max_length=128)
+    sample_rows: list[dict[str, str | None]] = Field(max_length=12)
+    warnings: list[str] = Field(default_factory=list, max_length=40)
+    profile_version: Literal["generic-tabular-1"] = "generic-tabular-1"
+
+
+class DatasetBinding(StrictModel):
+    artifact_id: str
+    x_column_id: str | None = None
+    y_column_ids: list[str] = Field(default_factory=list, max_length=3)
+    group_column_id: str | None = None
+    acquisition_order_column_id: str | None = None
+    confirmed_units: dict[str, str] = Field(default_factory=dict)
+    confirmation_authority: Literal["researcher"] = "researcher"
+    confirmed_at: str
+
+    @model_validator(mode="after")
+    def validate_roles(self) -> "DatasetBinding":
+        if not self.x_column_id or not self.y_column_ids:
+            raise ValueError("binding requires one X column and at least one Y column")
+        assigned = [self.x_column_id, *self.y_column_ids]
+        if self.group_column_id:
+            assigned.append(self.group_column_id)
+        if self.acquisition_order_column_id:
+            assigned.append(self.acquisition_order_column_id)
+        if len(assigned) != len(set(assigned)):
+            raise ValueError("binding roles cannot reuse a column")
+        return self
+
+
+class MeasurementModalityProposal(StrictModel):
+    candidate: Literal[
+        "electrical_transport_rt", "generic_spectrum", "generic_sweep", "generic_time_series",
+        "generic_cyclic_trace", "grouped_comparison", "actuator_dynamics", "unknown",
+    ]
+    confidence: Literal["high", "medium", "low"]
+    reasons: list[str] = Field(min_length=1, max_length=8)
+    alternatives: list[str] = Field(default_factory=list, max_length=5)
+    requires_confirmation: Literal[True] = True
+
+
+class DataEvidence(StrictModel):
+    """A GroundLoop-calculated fact. Codex can cite it but cannot invent it."""
+
+    evidence_id: str = Field(pattern=r"^data-evidence-[0-9a-f]{16}$")
+    artifact_id: str
+    artifact_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    selected_columns: list[str] = Field(min_length=1, max_length=8)
+    row_start: int = Field(ge=2)
+    row_end: int = Field(ge=2)
+    operation: Literal[
+        "raw_slice", "column_summary", "endpoint_delta", "argmax", "argmin", "range_extrema",
+        "linear_fit", "correlation", "monotonicity", "group_summary",
+    ]
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    result: dict[str, Any]
+    fact_text: str = Field(min_length=1, max_length=1000)
+    engine: Literal["groundloop-generic-tabular"] = "groundloop-generic-tabular"
+    engine_version: Literal["1.0.0"] = "1.0.0"
+    binding_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    operation_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    visualization_hint: Literal["line", "scatter", "table", "summary"] = "summary"
     created_at: str
 
 class Report(StrictModel):

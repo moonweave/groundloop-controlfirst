@@ -1,8 +1,8 @@
 # GroundLoop: ControlFirst
 
-GroundLoop is a local, Codex-native scientific decision instrument for experimental transport claims. It converts a mechanism claim into required signatures, checks those signatures against what the measurement can identify, and returns the smallest control experiment that can close the dominant gap.
+GroundLoop is a local, Codex-native **evidence-bound research convergence workspace** for materials, electronics, and functional-device experiments. It connects a claim, frozen method context, bounded tabular measurement artifacts, reviewed literature, falsifiable signatures, reproducible data facts, and one smallest discriminating control.
 
-The first user is a materials or experimental-physics researcher interpreting electrical or thermal transport data. GroundLoop is deliberately narrow for the Build Week submission; it does not claim support for every scientific domain or arbitrary dataset. The complete evidence-to-report workflow currently uses a two-wire resistance–temperature CSV. A separate local-only diagnostic accepts one Hioki SM7120 resistance-mode transient export; it reports V/R and a transparent OLS log–log check, not a mechanism conclusion.
+GroundLoop is deliberately not universal scientific AI. The v2 core accepts bounded UTF-8 CSV measurements with arbitrary headers, profiles them conservatively, requires a researcher-confirmed column binding and recipe choice, and permits only allowlisted deterministic evidence operations. Electrical transport R(T) remains the first method-aware recipe; generic spectrum, sweep, time-series, cyclic, grouped-comparison, and actuator routing are advisory configuration layers rather than unsupported scientific recipes. A separate local-only diagnostic accepts one Hioki SM7120 resistance-mode transient export; it reports V/R and a transparent OLS log–log check, not a mechanism conclusion.
 
 Every Convergence Map keeps four alignment states visibly separate:
 
@@ -17,10 +17,11 @@ Its output is one **ControlFirst** experiment: the smallest next measurement tha
 
 ```text
 apps/web/                         local React companion UI
-packages/core/                    state machine, validation, local run store, CSV analysis
+packages/core/                    evidence kernel, generic CSV profiler, safe operations, transport compatibility
 services/local_api/               localhost-only FastAPI adapter
 services/mcp_server/              stdio MCP server for Codex
-fixtures/four_wire_contact_control/ fixed Build Week walkthrough
+fixtures/four_wire_contact_control/ electrical-transport recipe walkthrough
+fixtures/generic_spectrum/         generic non-resistance spectrum walkthrough
 ```
 
 GroundLoop never calls an OpenAI API and does not need an API key. **Codex with GPT-5.6 is the reasoning host**: it calls GroundLoop's local MCP tools to inspect bounded evidence, decompose signatures, record semantic source roles, persist provenance, and export the report. The companion UI deliberately does not make a model call itself; it owns the Run, freeze boundary, map, and export.
@@ -83,6 +84,21 @@ Then start a Codex session with GPT-5.6 and say `Run the GroundLoop workflow for
 this Run`. The skill uses the registered `groundloop` MCP server; it does not
 upload the CSV or call an OpenAI API directly.
 
+## Generic CSV workflow
+
+The generic v2 path is the canonical research workflow:
+
+1. Create a Run with a claim, method context, one bounded UTF-8 CSV, and optional source candidates.
+2. GroundLoop profiles columns, candidate units, missingness, and sample rows. Codex may propose a modality, but it is advisory.
+3. The researcher confirms one X column, up to three Y columns, optional grouping/order, units, and a recipe (or keeps `generic`).
+4. Codex semantically reviews sources by role. The researcher freezes the exact claim, method, artifact hash, profile, binding, recipe, and selected excerpts.
+5. Codex requests an allowlisted operation such as `argmax`, `endpoint_delta`, `linear_fit`, `correlation`, or `monotonicity`. GroundLoop returns the only valid data-evidence ID and calculated fact.
+6. Codex records signatures, alignments, one control, and an export. `Observed` and `Contradicted` require GroundLoop-materialized data evidence. `Confounded` also requires a named alternative plus method/source limit evidence.
+
+The included `generic_spectrum` fixture demonstrates this path with
+`wavelength_nm,intensity_counts`. It establishes feature presence through an
+`argmax` fact but conservatively leaves microscopic assignment confounded.
+
 ## Judge fast path
 
 GroundLoop is a local developer tool, so judges can exercise the complete
@@ -101,9 +117,10 @@ fixture without rebuilding an experiment or supplying an API key:
    four-state alignments, commits one four-wire control contract, and exports the
    report. The UI updates the same Map automatically.
 
-The expected conclusion is deliberately conservative: a falling two-wire
-resistance trace is observed, but its bulk mechanism is **not established**
-until the matched four-wire control is run.
+The electrical transport fixture remains a complete deep recipe demo: a falling
+two-wire resistance trace is observed, but its bulk mechanism is **not
+established** until the matched four-wire control is run. The generic spectrum
+fixture proves that the same evidence-bound workflow is not limited to R(T).
 
 ## How we collaborated with Codex and GPT-5.6
 
@@ -165,9 +182,10 @@ decision sheet / Markdown / JSON export
 The principal MCP contracts are:
 
 - `create_run`, `get_run`, `update_run` — Codex-first creation and shared Run access;
+- `create_generic_run`, `inspect_dataset_profile`, `propose_measurement_modality`, `set_dataset_binding` — v2 generic intake and researcher-confirmed measurement roles;
 - `record_source_reviews` — one semantic review and one explicit evidence role per source;
 - `create_evidence_packet` — read the packet only after the researcher freezes it in the UI;
-- `inspect_sources`, `analyze_dataset` — bounded source and deterministic data checks;
+- `inspect_sources`, `analyze_dataset`, `materialize_data_evidence` — bounded source checks, generic profile, and reproducible facts;
 - `record_signatures`, `record_alignments` — the claim-to-measurement Convergence Map;
 - `record_control_contract`, `export_report` — one atomic next control and the report.
 
@@ -176,7 +194,9 @@ alignment records, control targets, and audit events under `.groundloop/runs/`.
 Changing a frozen claim or method requires a successor Run rather than mutating
 the frozen packet.
 
-For the submission recording, use the resistance fixture as the complete demo path; the timed shot list and narration are in [docs/demo/three-minute-resistance-demo.md](docs/demo/three-minute-resistance-demo.md).
+For the submission recording, open with the generic spectrum evidence path and
+then show the transport recipe as proof of method-aware depth. See
+[docs/generic-evidence-v2.md](docs/generic-evidence-v2.md) for the v2 contract.
 
 ## Additional local transient check
 

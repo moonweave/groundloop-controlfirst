@@ -1,6 +1,6 @@
 ---
 name: groundloop-controlfirst
-description: "Run GroundLoop's ControlFirst scientific workflow whenever the user mentions GroundLoop, ControlFirst, a Convergence Map, a GroundLoop Run ID, mechanism-claim analysis, source roles, required signatures, alignment states, or a discriminating control experiment. Use the registered `groundloop` MCP server and follow the staged source-review, human-freeze, analysis, alignment, control, and export workflow."
+description: "Run GroundLoop's evidence-bound research workflow whenever the user mentions GroundLoop, a Convergence Map, a GroundLoop Run ID, materials/electronics/functional-device measurement analysis, source roles, required signatures, alignment states, or a discriminating control. Use the registered `groundloop` MCP server and follow explicit profiling, researcher-confirmed binding, source-review, human-freeze, materialized-evidence, alignment, control, and export stages."
 ---
 
 # GroundLoop ControlFirst
@@ -8,7 +8,9 @@ description: "Run GroundLoop's ControlFirst scientific workflow whenever the use
 Use this skill when Codex is asked to operate on a GroundLoop Run. GroundLoop is
 the local evidence boundary; GPT-5.6 is the reasoning host. The job is not to
 write a prose research answer. The job is to save a typed, reviewable decision
-to the same Run the researcher sees in the UI.
+to the same Run the researcher sees in the UI. It supports bounded tabular
+materials, electronics, and functional-device measurements; it is not a claim
+to support every scientific modality or file format.
 
 ## Preconditions
 
@@ -44,6 +46,20 @@ Run in the UI if they want the visual Map.
 If Codex-first has no supplied sources, do not invent or silently retrieve
 evidence. Ask the researcher to add bounded source candidates in the UI or
 provide them before attempting source review and freeze.
+
+### Generic tabular v2
+
+Use `create_generic_run` for arbitrary-header CSV measurements such as spectra,
+sweeps, time series, grouped comparisons, or actuator data. Do **not** force
+these files into the electrical-transport path.
+
+1. Call `inspect_dataset_profile` and `propose_measurement_modality`.
+2. Explain that modality and header units are proposals only. The researcher
+   must confirm `set_dataset_binding` with returned column IDs and a recipe (or
+   `generic`) before the packet can freeze.
+3. After the human freeze and `analyze_dataset`, call
+   `materialize_data_evidence` for each numerical fact you need. Only cite the
+   returned `data-evidence-*` IDs; do not calculate a result in prose.
 
 ## Staged workflow
 
@@ -93,6 +109,10 @@ Call, in order:
 Use the returned evidence references and deterministic dataset facts. Do not
 replace them with web results, memory, or a newly generated CSV interpretation.
 
+For a generic v2 Run, immediately request the minimum allowlisted data facts
+needed for the signatures (`argmax`, `endpoint_delta`, `monotonicity`,
+`correlation`, etc.). GroundLoop returns exact selectors and stable IDs.
+
 ### 5. Record the Convergence Map
 
 Call `record_signatures` with 2–5 falsifiable required signatures. Each
@@ -105,9 +125,9 @@ signature must contain:
 
 Then call `record_alignments` with exactly one alignment per signature:
 
-- `Observed`: requires data evidence;
-- `Contradicted`: requires data evidence;
-- `Confounded`: requires evidence and a named alternative explanation;
+- `Observed`: requires GroundLoop-materialized data evidence for generic v2;
+- `Contradicted`: requires GroundLoop-materialized data evidence for generic v2;
+- `Confounded`: requires materialized data, method/source limit evidence, and a named alternative explanation for generic v2;
 - `Missing`: requires a `missing_reason`.
 
 Never upgrade a claim merely because a curve is real. Separate response,

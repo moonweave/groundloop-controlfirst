@@ -10,6 +10,7 @@ from packages.core.models import (
     AlignmentAdjudication,
     ClaimInput,
     ControlProposal,
+    DatasetBinding,
     Finding,
     RequiredSignature,
     SourceAdjudication,
@@ -53,6 +54,32 @@ def create_run(
             sources,
         )
     )
+
+
+@mcp.tool(description=f"Create a domain-neutral GroundLoop v2 Run from one bounded UTF-8 CSV. Pass inline CSV content only. GroundLoop profiles columns but does not silently select a recipe or scientific interpretation; call propose_measurement_modality and wait for researcher-confirmed binding before freezing. {GUIDANCE}")
+def create_generic_run(
+    claim: str,
+    methods: str,
+    dataset_csv: str,
+    sources: list[SourceInput] | None = None,
+    filename: str = "dataset.csv",
+) -> dict[str, Any]:
+    return _result(lambda: store.create_generic_run(ClaimInput(claim=claim), methods, dataset_csv.encode("utf-8"), sources, filename=filename))
+
+
+@mcp.tool(description=f"Return the bounded generic CSV profile, candidate header units, modality proposal, and any confirmed binding. Profile results are not scientific evidence. {GUIDANCE}")
+def inspect_dataset_profile(run_id: str) -> dict[str, Any]:
+    return _result(lambda: store.inspect_dataset_profile(run_id))
+
+
+@mcp.tool(description=f"Recompute the advisory modality proposal from frozen method context and profile. The result always requires researcher confirmation; do not silently activate a recipe. {GUIDANCE}")
+def propose_measurement_modality(run_id: str) -> dict[str, Any]:
+    return _result(lambda: store.propose_measurement_modality(run_id))
+
+
+@mcp.tool(description=f"Persist a researcher-confirmed v2 column binding and optional recipe. Use only column IDs returned by inspect_dataset_profile. This is the explicit boundary between column names and scientific roles. {GUIDANCE}")
+def set_dataset_binding(run_id: str, binding: DatasetBinding, recipe: str = "generic") -> dict[str, Any]:
+    return _result(lambda: store.set_dataset_binding(run_id, binding, recipe))
 
 
 @mcp.tool(description=f"Return the complete shared Run snapshot, including its current Convergence Map projection and audit timeline. {GUIDANCE}")
@@ -177,8 +204,22 @@ def analyze_dataset(run_id: str) -> dict[str, Any]:
     def operation() -> dict[str, Any]:
         packet = store.get_packet(run_id)
         store.analyze_dataset(run_id)
+        if packet.get("schema_version") == 2:
+            return {"dataset_profile": packet["dataset_profile"], "dataset_binding": packet["dataset_binding"], "recipe": packet["recipe"], "evidence_refs": packet["evidence_refs"]}
         return {"dataset": packet["dataset"], "evidence_refs": [item for item in packet["evidence_refs"] if item["kind"] == "data"]}
     return _result(operation)
+
+
+@mcp.tool(description=f"Execute one allowlisted deterministic operation over a frozen generic artifact and return a stable data evidence ID. Codex must cite this returned ID for Observed or Contradicted claims; never calculate or invent numeric evidence itself. {GUIDANCE}")
+def materialize_data_evidence(
+    run_id: str,
+    operation: str,
+    selected_columns: list[str],
+    row_start: int,
+    row_end: int,
+    parameters: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return _result(lambda: store.materialize_data_evidence(run_id, operation, selected_columns, row_start, row_end, parameters))
 
 
 @mcp.tool(description=f"Persist Codex's 2–5 required mechanism signatures. Each signature must cite only evidence IDs returned by GroundLoop. {GUIDANCE}")
@@ -208,9 +249,10 @@ def record_control_contract(run_id: str, control: ControlProposal) -> dict[str, 
 
 @mcp.tool(description=f"Export the validated report after all analysis states are complete. {GUIDANCE}")
 def export_report(run_id: str) -> dict[str, Any]:
-    return _result(
-        lambda: store.export_report(run_id).model_dump(mode="json", by_alias=True)
-    )
+    def operation() -> dict[str, Any]:
+        payload = store.export_report(run_id)
+        return payload if isinstance(payload, dict) else payload.model_dump(mode="json", by_alias=True)
+    return _result(operation)
 
 
 def run() -> None:

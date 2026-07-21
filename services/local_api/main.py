@@ -15,6 +15,7 @@ from packages.core.models import (
     AlignmentAdjudication,
     ClaimInput,
     ControlProposal,
+    DatasetBinding,
     RequiredSignature,
     SourceAdjudication,
     SourceInput,
@@ -29,7 +30,7 @@ class StrictRequest(BaseModel):
 class CreateRunRequest(StrictRequest):
     fixture_name: str | None = Field(
         default=None,
-        pattern=r"^four_wire_contact_control(?:_guided)?$",
+        pattern=r"^(?:four_wire_contact_control(?:_guided)?|generic_spectrum)$",
     )
     claim: str | None = Field(default=None, min_length=1, max_length=1000)
     methods: str | None = Field(default=None, min_length=20, max_length=20_000)
@@ -70,6 +71,31 @@ class AlignmentsRequest(StrictRequest):
 
 class ControlContractRequest(StrictRequest):
     control: ControlProposal
+
+
+class GenericCreateRunRequest(StrictRequest):
+    claim: str = Field(min_length=1, max_length=1000)
+    methods: str = Field(min_length=20, max_length=20_000)
+    dataset_csv: str = Field(min_length=1, max_length=5 * 1024 * 1024)
+    sources: list[SourceInput] = Field(default_factory=list, max_length=20)
+    filename: str = Field(default="dataset.csv", min_length=1, max_length=255)
+
+
+class DatasetBindingRequest(StrictRequest):
+    binding: DatasetBinding
+    recipe: str = Field(default="generic", min_length=1, max_length=80)
+
+
+class DataEvidenceRequest(StrictRequest):
+    operation: str = Field(min_length=1, max_length=80)
+    selected_columns: list[str] = Field(min_length=1, max_length=8)
+    row_start: int = Field(ge=2)
+    row_end: int = Field(ge=2)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class SourceInspectionRequest(StrictRequest):
+    expectations: list[dict[str, Any]] = Field(min_length=1, max_length=20)
 
 
 def _repo_root() -> Path:
@@ -123,6 +149,8 @@ def create_app(store: RunStore | None = None, discovery: ReferenceDiscovery | No
         try:
             if request.fixture_name:
                 fixture = _repo_root() / "fixtures" / "four_wire_contact_control"
+                if request.fixture_name == "generic_spectrum":
+                    return app.state.store.create_generic_fixture_run(_repo_root() / "fixtures" / "generic_spectrum")
                 if request.fixture_name == "four_wire_contact_control_guided":
                     return app.state.store.create_guided_demo_run(fixture).model_dump(mode="json")
                 return app.state.store.create_fixture_run(fixture).model_dump(mode="json")
@@ -136,6 +164,58 @@ def create_app(store: RunStore | None = None, discovery: ReferenceDiscovery | No
                     request.sources,
                 )
             return app.state.store.create_run().model_dump(mode="json")
+        except Exception as exc:
+            raise _error(exc) from exc
+
+    @app.post("/api/generic/runs")
+    def create_generic_run(request: GenericCreateRunRequest) -> dict[str, Any]:
+        try:
+            return app.state.store.create_generic_run(
+                ClaimInput(claim=request.claim), request.methods, request.dataset_csv.encode("utf-8"),
+                request.sources, filename=request.filename,
+            )
+        except Exception as exc:
+            raise _error(exc) from exc
+
+    @app.get("/api/generic/runs/{run_id}/dataset-profile")
+    def dataset_profile(run_id: str) -> dict[str, Any]:
+        try:
+            return app.state.store.inspect_dataset_profile(run_id)
+        except Exception as exc:
+            raise _error(exc) from exc
+
+    @app.post("/api/generic/runs/{run_id}/modality")
+    def modality(run_id: str) -> dict[str, Any]:
+        try:
+            return app.state.store.propose_measurement_modality(run_id)
+        except Exception as exc:
+            raise _error(exc) from exc
+
+    @app.post("/api/generic/runs/{run_id}/binding")
+    def binding(run_id: str, request: DatasetBindingRequest) -> dict[str, Any]:
+        try:
+            return app.state.store.set_dataset_binding(run_id, request.binding, request.recipe)
+        except Exception as exc:
+            raise _error(exc) from exc
+
+    @app.post("/api/generic/runs/{run_id}/source-inspection")
+    def generic_source_inspection(run_id: str, request: SourceInspectionRequest) -> dict[str, Any]:
+        try:
+            return app.state.store.inspect_sources(run_id, request.expectations)
+        except Exception as exc:
+            raise _error(exc) from exc
+
+    @app.post("/api/generic/runs/{run_id}/analyze")
+    def generic_analyze(run_id: str) -> dict[str, Any]:
+        try:
+            return app.state.store.analyze_dataset(run_id)
+        except Exception as exc:
+            raise _error(exc) from exc
+
+    @app.post("/api/generic/runs/{run_id}/data-evidence")
+    def generic_data_evidence(run_id: str, request: DataEvidenceRequest) -> dict[str, Any]:
+        try:
+            return app.state.store.materialize_data_evidence(run_id, request.operation, request.selected_columns, request.row_start, request.row_end, request.parameters)
         except Exception as exc:
             raise _error(exc) from exc
 
@@ -279,9 +359,8 @@ def create_app(store: RunStore | None = None, discovery: ReferenceDiscovery | No
     @app.get("/api/runs/{run_id}/report")
     def report(run_id: str) -> dict[str, Any]:
         try:
-            return app.state.store.get_report(run_id).model_dump(
-                mode="json", by_alias=True
-            )
+            payload = app.state.store.get_report(run_id)
+            return payload if isinstance(payload, dict) else payload.model_dump(mode="json", by_alias=True)
         except Exception as exc:
             raise _error(exc) from exc
 

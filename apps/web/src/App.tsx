@@ -38,6 +38,7 @@ type Run = {
   state: RunState;
   fixture?: string;
   created_at: string;
+  workflow?: "transport_v1" | "generic_v2";
 };
 type Dataset = {
   row_count: number;
@@ -133,9 +134,9 @@ type Report = {
   control?: Control;
   sources: Source[];
   source_review?: SourceReview | null;
-  dataset: Dataset;
-  dataset_provenance: "USER_MEASUREMENT" | "LABELLED_DEMO" | "FIXTURE_DEMO";
-  verdict: { label: string; reason: string; blocking_finding_ids: string[] };
+  dataset?: Dataset;
+  dataset_provenance?: "USER_MEASUREMENT" | "LABELLED_DEMO" | "FIXTURE_DEMO";
+  verdict: { label: string; reason: string; blocking_finding_ids?: string[]; blocking_signature_ids?: string[] };
   convergence?: ConvergenceMap;
   exported_at: string;
 };
@@ -151,6 +152,11 @@ type Detail = {
     dataset?: Dataset | null;
     dataset_evidence_ref?: EvidenceRef;
     dataset_provenance?: string;
+    artifact?: { filename: string; sha256: string };
+    dataset_profile?: GenericProfile;
+    modality_proposal?: { candidate: string; confidence: string; reasons: string[]; alternatives: string[] };
+    dataset_binding?: { x_column_id: string; y_column_ids: string[] } | null;
+    recipe?: { id: string; version: string } | null;
     retrieval_review?: {
       provider: string;
       status: "required" | "completed";
@@ -163,30 +169,28 @@ type Detail = {
     claim: { claim: string };
     sources: Source[];
     methods: string;
-    dataset: Dataset;
+    dataset?: Dataset;
+    dataset_profile?: GenericProfile;
+    dataset_binding?: { x_column_id: string; y_column_ids: string[] };
+    recipe?: { id: string; version: string };
     dataset_provenance?: string;
     evidence_refs: EvidenceRef[];
     source_review?: SourceReview;
   };
   convergence?: ConvergenceMap;
   report?: Report;
+  data_evidence?: { evidence_id: string; operation: string; fact_text: string; selected_columns: string[]; row_start: number; row_end: number }[];
+};
+
+type GenericProfile = {
+  row_count: number;
+  column_count: number;
+  columns: { column_id: string; name: string; inferred_type: string; unit: { value?: string; status: string }; missing_count: number }[];
+  sample_rows: Record<string, string | null>[];
+  warnings: string[];
 };
 
 const API_BASE = import.meta.env.VITE_GROUNDLOOP_API_URL ?? "";
-const DEMO_CSV = [
-  "temperature_c,two_wire_resistance_ohm",
-  "20,120",
-  "30,117.5",
-  "40,113.2",
-  "50,107",
-  "60,98.4",
-  "70,88.8",
-  "80,77.1",
-  "90,65",
-].join("\n");
-const DEFAULT_METHOD =
-  "Two-wire resistance was recorded during a temperature sweep with fixed sample mounting and applied current.";
-
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const isForm = init?.body instanceof FormData;
   const response = await fetch(`${API_BASE}${path}`, {
@@ -240,24 +244,30 @@ function methodLabel(method: string) {
   if (lower.includes("four-wire") || lower.includes("four wire") || lower.includes("four-terminal")) {
     return "FOUR-WIRE R(T)";
   }
-  return "TWO-WIRE R(T)";
+  if (lower.includes("two-wire") || lower.includes("two wire") || lower.includes("resistance")) return "TWO-WIRE R(T)";
+  return "GENERIC TABULAR";
 }
 
 function datasetFrom(detail: Detail): Dataset | undefined {
   return detail.packet?.dataset ?? detail.report?.dataset ?? detail.draft?.dataset ?? undefined;
 }
 
+function genericProfileFrom(detail: Detail): GenericProfile | undefined {
+  return detail.draft?.dataset_profile ?? detail.packet?.dataset_profile;
+}
+
 function briefFor(detail: Detail) {
   const claim = detail.convergence?.claim ?? detail.draft?.claim?.claim ?? detail.packet?.claim.claim ?? "";
   const method = detail.convergence?.measurement_method ?? detail.packet?.methods ?? detail.draft?.methods ?? "";
+  const generic = detail.run.workflow === "generic_v2";
   const steps = detail.run.state === "DRAFT"
     ? [
-        "1. While this Run is DRAFT, call record_source_reviews once for every supplied source. Assign direct sources one role: theory_basis, method_limit, or discriminating_control.",
-        "2. Stop and ask the researcher to click FREEZE EVIDENCE in GroundLoop. Do not call create_evidence_packet before the researcher confirms the freeze.",
+        generic ? "1. Call inspect_dataset_profile and propose_measurement_modality. The researcher must confirm set_dataset_binding and recipe selection; do not infer scientific roles from headers alone." : "1. While this Run is DRAFT, call record_source_reviews once for every supplied source. Assign direct sources one role: theory_basis, method_limit, or discriminating_control.",
+        generic ? "2. Record source reviews, then stop and ask the researcher to click FREEZE EVIDENCE. Do not freeze from Codex." : "2. Stop and ask the researcher to click FREEZE EVIDENCE in GroundLoop. Do not call create_evidence_packet before the researcher confirms the freeze.",
       ]
     : detail.run.state === "PACKET_READY"
       ? [
-          "1. The researcher has frozen the packet. Call create_evidence_packet, inspect_sources, and analyze_dataset in that order.",
+          generic ? "1. The researcher has frozen the packet. Call create_evidence_packet, inspect_sources, analyze_dataset, then materialize_data_evidence." : "1. The researcher has frozen the packet. Call create_evidence_packet, inspect_sources, and analyze_dataset in that order.",
           "2. Then call record_signatures, record_alignments, record_control_contract, and export_report in that order.",
         ]
       : detail.run.state === "EXPORTED"
@@ -276,7 +286,7 @@ function briefFor(detail: Detail) {
     "",
     "Use the GroundLoop MCP and follow the state-gated steps below:",
     ...steps,
-    "Record only Observed, Confounded, Missing, or Contradicted alignments. Name the alternative explanation for Confounded and keep the control atomic.",
+    generic ? "Observed and Contradicted must cite a GroundLoop materialized data-evidence ID. Confounded must cite materialized data plus a method or source limit." : "Record only Observed, Confounded, Missing, or Contradicted alignments. Name the alternative explanation for Confounded and keep the control atomic.",
     "Export the report when the Convergence Map is complete.",
   ].join("\n");
 }
@@ -341,18 +351,17 @@ function App() {
     return () => window.clearInterval(timer);
   }, [detail?.run.run_id]);
 
-  const createRun = async (payload: { claim: string; methods: string; datasetCsv: string }) => {
+  const createRun = async (payload: { claim: string; methods: string; datasetCsv: string; fileName: string }) => {
     setBusy(true);
     setError("");
     try {
-      const created = await api<Run>("/api/runs", { method: "POST", body: JSON.stringify({}) });
-      const next = await api<Detail>(`/api/runs/${created.run_id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ claim: payload.claim, methods: payload.methods, dataset_csv: payload.datasetCsv }),
+      const next = await api<Detail>("/api/generic/runs", {
+        method: "POST",
+        body: JSON.stringify({ claim: payload.claim, methods: payload.methods, dataset_csv: payload.datasetCsv, filename: payload.fileName }),
       });
       setDetail(next);
       setView("map");
-      setNotice("Run created. Deterministic measurement facts are ready; Codex can now take the Run brief.");
+      setNotice("Generic Run profiled. Confirm the dataset binding and recipe with Codex before freezing evidence.");
       await refreshRuns();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to create the Run.");
@@ -429,14 +438,14 @@ function Landing({
   service: "checking" | "ready" | "unavailable";
   runs: Run[];
   busy: boolean;
-  onCreate: (payload: { claim: string; methods: string; datasetCsv: string }) => Promise<void>;
+  onCreate: (payload: { claim: string; methods: string; datasetCsv: string; fileName: string }) => Promise<void>;
   onOpenDemo: () => Promise<void>;
   onOpenRun: (runId: string) => Promise<void>;
 }) {
-  const [claim, setClaim] = useState("The temperature-dependent two-wire resistance decrease demonstrates a bulk conductivity transition.");
-  const [methods, setMethods] = useState(DEFAULT_METHOD);
-  const [datasetCsv, setDatasetCsv] = useState(DEMO_CSV);
-  const [fileName, setFileName] = useState("resistance-sweep.csv");
+  const [claim, setClaim] = useState("A spectral feature near 620 nm demonstrates defect-state emission.");
+  const [methods, setMethods] = useState("Steady-state photoluminescence spectra were exported as wavelength and intensity tables from the same sample under fixed excitation.");
+  const [datasetCsv, setDatasetCsv] = useState(["wavelength_nm,intensity_counts", "580,12", "600,28", "620,91", "640,45", "660,18"].join("\n"));
+  const [fileName, setFileName] = useState("spectrum.csv");
 
   const handleFile = (file?: File) => {
     if (!file) return;
@@ -454,9 +463,9 @@ function Landing({
       </header>
       <section className="landing-hero">
         <div className="hero-copy">
-          <p className="kicker">SCIENTIFIC DECISION INSTRUMENT · TRANSPORT / R(T)</p>
+          <p className="kicker">RESEARCH CONVERGENCE WORKSPACE · BOUNDED TABULAR MEASUREMENTS</p>
           <h1>Make the claim<br /><em>decidable.</em></h1>
-          <p className="hero-deck">GroundLoop turns a mechanism claim into required signatures, tests them against the measurement boundary, and names the one control that can close the gap.</p>
+          <p className="hero-deck">GroundLoop profiles local measurement artifacts, binds the evidence boundary, and turns a mechanism claim into testable signatures and one discriminating control.</p>
           <div className="hero-rail"><span>THEORY</span><i /><span>MEASUREMENT</span><i /><span>CONTROL</span></div>
         </div>
         <div className="entry-panel panel-linework">
@@ -464,19 +473,19 @@ function Landing({
           <label className="field-label" htmlFor="claim">MECHANISM CLAIM <span>REQUIRED</span></label>
           <textarea id="claim" value={claim} onChange={(event) => setClaim(event.target.value)} className="claim-field" rows={4} />
           <div className="entry-grid">
-            <div><label className="field-label" htmlFor="method">MEASUREMENT METHOD</label><div className="select-wrap"><select id="method" value="transport" onChange={() => undefined}><option value="transport">Electrical transport / R(T) / Two-wire</option></select><ChevronDown size={16} /></div></div>
+            <div><label className="field-label" htmlFor="method">MEASUREMENT FAMILY</label><div className="select-wrap"><select id="method" value="generic" onChange={() => undefined}><option value="generic">Generic tabular / recipe confirmed after profiling</option></select><ChevronDown size={16} /></div></div>
             <div><label className="field-label" htmlFor="method-notes">METHOD CONTEXT</label><input id="method-notes" value={methods} onChange={(event) => setMethods(event.target.value)} /></div>
           </div>
           <div className="upload-zone">
-            <div className="upload-copy"><FileUp size={17} /><div><strong>{fileName}</strong><span>UTF-8 CSV · temperature_c / two_wire_resistance_ohm</span></div></div>
+            <div className="upload-copy"><FileUp size={17} /><div><strong>{fileName}</strong><span>UTF-8 CSV · arbitrary headers · profile before interpretation</span></div></div>
             <label className="text-button">REPLACE<input type="file" accept=".csv,text/csv" onChange={(event) => handleFile(event.target.files?.[0])} /></label>
           </div>
-          <div className="entry-footer"><span className="tiny-note"><LockKeyhole size={13} /> Raw file stays in the local Run boundary.</span><button className="primary-button" type="button" disabled={busy || !claim.trim() || datasetCsv.length < 20} onClick={() => void onCreate({ claim, methods, datasetCsv })}>{busy ? "CREATING RUN…" : "CREATE GROUNDLOOP RUN"}<ArrowRight size={16} /></button></div>
+          <div className="entry-footer"><span className="tiny-note"><LockKeyhole size={13} /> Raw file stays in the local Run boundary.</span><button className="primary-button" type="button" disabled={busy || !claim.trim() || datasetCsv.length < 20} onClick={() => void onCreate({ claim, methods, datasetCsv, fileName })}>{busy ? "CREATING RUN…" : "CREATE GROUNDLOOP RUN"}<ArrowRight size={16} /></button></div>
         </div>
       </section>
       <section className="landing-bottom">
-        <button className="demo-strip" type="button" onClick={() => void onOpenDemo()} disabled={busy}><div className="demo-orbit"><Radio size={16} /><span>DEMO FIXTURE</span></div><div><strong>Open the resistance sweep</strong><span>120 Ω → 65 Ω · two-wire · guided Convergence Map</span></div><ArrowRight size={17} /></button>
-        <div className="recent-runs"><div className="section-cap"><span>RECENT RUNS</span><span>{runs.length.toString().padStart(2, "0")}</span></div>{runs.length === 0 ? <p className="empty-note">No local Runs yet. Start with the supplied transport fixture.</p> : runs.slice(0, 3).map((run) => <button key={run.run_id} type="button" onClick={() => void onOpenRun(run.run_id)}><span>{formatId(run.run_id)}</span><span>{run.state.replaceAll("_", " ")}</span><ChevronDown size={14} /></button>)}</div>
+        <button className="demo-strip" type="button" onClick={() => void onOpenDemo()} disabled={busy}><div className="demo-orbit"><Radio size={16} /><span>TRANSPORT RECIPE</span></div><div><strong>Open the R(T) contact-control fixture</strong><span>120 Ω → 65 Ω · preserved electrical transport workflow</span></div><ArrowRight size={17} /></button>
+        <div className="recent-runs"><div className="section-cap"><span>RECENT RUNS</span><span>{runs.length.toString().padStart(2, "0")}</span></div>{runs.length === 0 ? <p className="empty-note">Start with a bounded CSV, then confirm its binding before freezing.</p> : runs.slice(0, 3).map((run) => <button key={run.run_id} type="button" onClick={() => void onOpenRun(run.run_id)}><span>{formatId(run.run_id)}</span><span>{run.state.replaceAll("_", " ")}</span><ChevronDown size={14} /></button>)}</div>
       </section>
     </main>
   );
@@ -515,16 +524,19 @@ function Workspace({
     <main className="workspace-shell">
       <header className="workspace-header"><div className="brand-lockup"><Orbit size={19} /><span>GROUNDLOOP</span></div><div className="workspace-meta"><span className="run-stamp">{formatId(detail.run.run_id)}</span><span className="state-stamp"><span className="service-dot ready" />{stateLabel}</span><span className="method-stamp">{methodLabel(method)}</span></div><div className="header-actions"><button className="icon-button" type="button" onClick={onRefresh} disabled={busy} title="Refresh Run"><RefreshCw size={15} className={busy ? "spin" : ""} /></button><button className="outline-button" type="button" onClick={onNew}><Plus size={15} /> NEW RUN</button></div></header>
       <nav className="workspace-nav" aria-label="Run sections"><div className="nav-intro"><span className="kicker">RUN INSTRUMENT</span><span>{detail.run.created_at.slice(0, 10)}</span></div><div className="nav-tabs">{(["map", "sources", "audit"] as View[]).map((item) => <button key={item} type="button" className={view === item ? "active" : ""} onClick={() => onView(item)}>{item === "map" ? "CONVERGENCE MAP" : item === "sources" ? "SOURCE REVIEW" : "AUDIT / EXPORT"}</button>)}</div><div className="nav-status"><Activity size={14} /> LIVE RUN</div></nav>
-      {view === "map" && <MapScreen detail={detail} onNotice={onNotice} onFreeze={freeze} />}
+      {view === "map" && <MapScreen detail={detail} onNotice={onNotice} onFreeze={freeze} onRefresh={onRefresh} />}
       {view === "sources" && <SourcesScreen detail={detail} />}
       {view === "audit" && <AuditScreen detail={detail} />}
     </main>
   );
 }
 
-function MapScreen({ detail, onNotice, onFreeze }: { detail: Detail; onNotice: (notice: string) => void; onFreeze: () => Promise<void> }) {
+function MapScreen({ detail, onNotice, onFreeze, onRefresh }: { detail: Detail; onNotice: (notice: string) => void; onFreeze: () => Promise<void>; onRefresh: () => void }) {
   const map = detail.convergence;
   const dataset = datasetFrom(detail);
+  const genericProfile = genericProfileFrom(detail);
+  const genericEvidence = detail.data_evidence ?? [];
+  const genericBinding = detail.draft?.dataset_binding;
   const [selectedId, setSelectedId] = useState(map?.signatures[0]?.id ?? "signature-response");
   const [copied, setCopied] = useState(false);
   const selected = map?.signatures.find((item) => item.id === selectedId);
@@ -564,17 +576,45 @@ function MapScreen({ detail, onNotice, onFreeze }: { detail: Detail; onNotice: (
   return (
     <div className="map-page">
       <div className="map-toolbar"><div><p className="kicker">PRIMARY INSTRUMENT / CLAIM ↔ MEASUREMENT</p><p className="toolbar-caption">The map keeps the scientific question visible while Codex works the evidence.</p></div><div className="toolbar-actions">{detail.run.state === "DRAFT" && <button type="button" className="outline-button" onClick={() => void onFreeze()}><LockKeyhole size={14} /> FREEZE EVIDENCE</button>}<span className={`draft-chip ${map.freeze_status === "FROZEN" ? "frozen" : ""}`}>{map.freeze_status === "FROZEN" ? <LockKeyhole size={13} /> : <Activity size={13} />}{map.freeze_status === "FROZEN" ? "MAP FROZEN" : "DRAFT ALIGNMENT"}</span><button type="button" className="outline-button" onClick={() => void copyBrief()}><Clipboard size={14} />{copied ? " COPIED" : " COPY CODEX BRIEF"}</button></div></div>
+      {detail.run.workflow === "generic_v2" && detail.run.state === "DRAFT" && genericProfile && !genericBinding && <BindingPanel detail={detail} profile={genericProfile} onNotice={onNotice} onRefresh={onRefresh} />}
       <div className="instrument-grid">
         <section className="map-instrument" aria-label="Convergence Map">
           <div className="theory-band"><div className="band-topline"><span><span className="signal-mark" />TOP-DOWN / WHAT THE MECHANISM MUST EXPLAIN</span><span>01 / CLAIM DECOMPOSITION</span></div><h1>{map.claim}</h1><div className="signature-grid">{map.signatures.map((signature, index) => <button type="button" key={signature.id} className={`signature-cell ${selectedId === signature.id ? "selected" : ""}`} onClick={() => setSelectedId(signature.id)}><span className="signature-index">S{String(index + 1).padStart(2, "0")}</span><strong>{signature.name}</strong><span>{signature.requirement}</span></button>)}</div></div>
           <div className="alignment-field"><div className="field-caption"><span>ALIGNMENT FIELD</span><span>THEORY → METHOD → EVIDENCE</span></div><div className="alignment-grid">{map.signatures.map((signature) => { const alignment = map.alignments.find((item) => item.signature_id === signature.id); return <button type="button" key={signature.id} className={`alignment-lane ${alignment ? statusClass(alignment.status) : "status-missing"} ${selectedId === signature.id ? "selected" : ""}`} onClick={() => setSelectedId(signature.id)}><span className="alignment-wire" /><span className="alignment-node">{alignment?.status === "Observed" ? <Check size={14} /> : alignment?.status === "Contradicted" ? "×" : alignment?.status === "Confounded" ? "∥" : "○"}</span><span className="alignment-status">{statusLabel(alignment?.status ?? "Missing")}</span><span className="alignment-note">{alignment?.status === "Observed" ? "directly supported" : alignment?.status === "Confounded" ? "alternative remains viable" : alignment?.status === "Contradicted" ? "prediction not met" : "not in this measurement"}</span></button>; })}</div></div>
-          <div className="evidence-band"><div className="band-topline light"><span><span className="trace-mark" />BOTTOM-UP / WHAT THIS MEASUREMENT ACTUALLY SHOWS</span><span>{dataset ? `${dataset.row_count} ROWS / DETERMINISTIC` : "DATA PENDING"}</span></div><div className="evidence-layout"><div className="trace-wrap">{rows.length ? <TraceChart rows={rows} /> : <div className="trace-empty"><FileUp size={18} /><span>Upload a UTF-8 CSV to render the raw trace.</span></div>}</div><div className="measurement-boundary"><div className="boundary-code"><span>METHOD /</span><strong>{methodLabel(map.measurement_method)}</strong></div><div className="boundary-row"><span>MEASURES</span><strong>TOTAL LOOP RESISTANCE</strong></div><div className="boundary-row"><span>CANNOT DISTINGUISH</span><strong>SAMPLE <i>vs</i> CONTACT + LEAD</strong></div><div className="equation">R<sub>2W</sub> = R<sub>s</sub> + R<sub>c</sub> + R<sub>lead</sub></div></div></div>{dataset && <div className="metric-strip"><Metric label="TEMPERATURE" value={`${formatNumber(dataset.temperature_range_c[0], 0)}–${formatNumber(dataset.temperature_range_c[1], 0)} °C`} /><Metric label="RESISTANCE" value={`${formatNumber(dataset.first_resistance_ohm)} → ${formatNumber(dataset.last_resistance_ohm)} Ω`} /><Metric label="CHANGE" value={`${change >= 0 ? "+" : ""}${formatNumber(change)}%`} accent="cyan" /></div>}</div>
+          <div className="evidence-band"><div className="band-topline light"><span><span className="trace-mark" />BOTTOM-UP / WHAT THIS MEASUREMENT ACTUALLY SHOWS</span><span>{genericProfile ? `${genericProfile.row_count} ROWS / ${genericProfile.column_count} COLUMNS` : dataset ? `${dataset.row_count} ROWS / DETERMINISTIC` : "DATA PENDING"}</span></div>{genericProfile ? <GenericEvidenceDeck profile={genericProfile} evidence={genericEvidence} method={map.measurement_method} /> : <><div className="evidence-layout"><div className="trace-wrap">{rows.length ? <TraceChart rows={rows} /> : <div className="trace-empty"><FileUp size={18} /><span>Upload a UTF-8 CSV to render the raw trace.</span></div>}</div><div className="measurement-boundary"><div className="boundary-code"><span>METHOD /</span><strong>{methodLabel(map.measurement_method)}</strong></div><div className="boundary-row"><span>MEASURES</span><strong>TOTAL LOOP RESISTANCE</strong></div><div className="boundary-row"><span>CANNOT DISTINGUISH</span><strong>SAMPLE <i>vs</i> CONTACT + LEAD</strong></div><div className="equation">R<sub>2W</sub> = R<sub>s</sub> + R<sub>c</sub> + R<sub>lead</sub></div></div></div>{dataset && <div className="metric-strip"><Metric label="TEMPERATURE" value={`${formatNumber(dataset.temperature_range_c[0], 0)}–${formatNumber(dataset.temperature_range_c[1], 0)} °C`} /><Metric label="RESISTANCE" value={`${formatNumber(dataset.first_resistance_ohm)} → ${formatNumber(dataset.last_resistance_ohm)} Ω`} /><Metric label="CHANGE" value={`${change >= 0 ? "+" : ""}${formatNumber(change)}%`} accent="cyan" /></div>}</>}</div>
         </section>
         <aside className="gap-rail"><div className="rail-cap"><span>THE GAP</span><span>IDENTIFIABILITY</span></div><div className="verdict-block"><span className="verdict-pulse" /><p>{map.freeze_status === "FROZEN" ? "MECHANISM" : "DECISION"}</p><h2>{map.freeze_status === "FROZEN" ? "NOT ESTABLISHED" : "PENDING"}</h2><div className="verdict-rule" /><span>{map.dominant_gap}</span></div>{control ? <><div className="control-module"><div className="control-label"><FlaskConical size={15} />NEXT DISCRIMINATING MOVE</div><h3>{control.experiment}</h3><div className="control-meta"><div><span>CHANGES</span><strong>SENSING TOPOLOGY</strong></div><div><span>HOLDS FIXED</span><strong>{control.preconditions.slice(0, 2).join(" · ")}</strong></div></div><div className="control-targets"><span><Check size={12} /> CLOSES {control.closes_signature_ids?.join(" / ") ?? "—"}</span><span><ArrowRight size={12} /> LEAVES {control.leaves_open_signature_ids?.join(" / ") ?? "—"} OPEN</span></div><button type="button" className="control-button" onClick={() => void copyControl()}>COPY FOLLOW-UP CONTRACT <ArrowRight size={15} /></button></div><div className="outcome-fork"><span className="fork-label"><GitBranch size={13} />EXPECTED OUTCOME FORK</span>{control.outcomes.slice(0, 2).map((outcome, index) => <div className="outcome-row" key={`${outcome.then}-${index}`}><span>{index === 0 ? "PERSISTS" : "WEAKENS"}</span><p>{outcome.then}</p></div>)}</div></> : <><div className="control-module control-pending"><div className="control-label"><FlaskConical size={15} />CONTROL PENDING</div><h3>Codex has not committed a control contract for this Run.</h3><p>Complete signature alignments before presenting the next discriminating move.</p></div><div className="outcome-fork"><span className="fork-label"><GitBranch size={13} />OUTCOME FORK PENDING</span><p>No committed control means no recorded outcome fork yet.</p></div></>}<div className="rail-footer"><span><ShieldCheck size={13} /> GPT-5.6 VIA CODEX MCP</span><span>LOCAL UI · NO CLOUD DATA UPLOAD</span></div></aside>
       </div>
       {selected && selectedAlignment && <section className="signature-inspector"><div><span className="kicker">SELECTED SIGNATURE / {selected.id.replace("signature-", "S")}</span><h2>{selected.name} <StatusBadge status={selectedAlignment.status} /></h2></div><div className="inspector-columns"><div><span className="inspector-label">REQUIRED</span><p>{selected.requirement}</p></div><div><span className="inspector-label">CURRENT RATIONALE</span><p>{selectedAlignment.rationale}</p></div><div><span className="inspector-label">EVIDENCE BOUNDARY</span><p>{selectedAlignment.evidence_ref_ids.length ? selectedAlignment.evidence_ref_ids.join(" · ") : "No direct evidence in this packet."}</p></div></div>{selectedAlignment.alternative_explanation && <div className="alternative-note"><TriangleAlert size={14} /><span>{selectedAlignment.alternative_explanation}</span></div>}</section>}
     </div>
   );
+}
+
+function BindingPanel({ detail, profile, onNotice, onRefresh }: { detail: Detail; profile: GenericProfile; onNotice: (notice: string) => void; onRefresh: () => void }) {
+  const numeric = profile.columns.filter((column) => column.inferred_type === "numeric" || column.inferred_type === "integer");
+  const [xColumnId, setXColumnId] = useState(profile.columns[0]?.column_id ?? "");
+  const [yColumnId, setYColumnId] = useState(numeric.find((column) => column.column_id !== profile.columns[0]?.column_id)?.column_id ?? numeric[0]?.column_id ?? "");
+  const proposal = detail.draft?.modality_proposal?.candidate ?? "generic";
+  const confirm = async () => {
+    if (!xColumnId || !yColumnId || xColumnId === yColumnId) {
+      onNotice("Select distinct X and Y columns before confirming the research binding.");
+      return;
+    }
+    const selected = [xColumnId, yColumnId].map((id) => profile.columns.find((column) => column.column_id === id)).filter(Boolean);
+    const confirmedUnits = Object.fromEntries(selected.flatMap((column) => column?.unit.value ? [[column.column_id, column.unit.value]] : []));
+    try {
+      await api(`/api/generic/runs/${detail.run.run_id}/binding`, { method: "POST", body: JSON.stringify({ binding: { artifact_id: "artifact-001", x_column_id: xColumnId, y_column_ids: [yColumnId], confirmed_units: confirmedUnits, confirmation_authority: "researcher", confirmed_at: new Date().toISOString() }, recipe: proposal === "generic_spectrum" ? "generic_spectrum" : proposal === "electrical_transport_rt" ? "electrical_transport_rt" : "generic" }) });
+      onNotice("Research binding confirmed. Codex can now review source roles; freeze remains your decision.");
+      onRefresh();
+    } catch (caught) {
+      onNotice(`Binding blocked: ${caught instanceof Error ? caught.message : "check the selected columns."}`);
+    }
+  };
+  return <section className="binding-panel"><div><p className="kicker">RESEARCHER CONFIRMATION / DATA BINDING</p><h2>Columns are not scientific roles until you confirm them.</h2><p>Codex proposed <strong>{proposal.replaceAll("_", " ")}</strong>. Confirm the primary axis and observable before the packet can freeze.</p></div><div className="binding-controls"><label><span>X / INDEPENDENT</span><select value={xColumnId} onChange={(event) => setXColumnId(event.target.value)}>{profile.columns.map((column) => <option value={column.column_id} key={column.column_id}>{column.name} · {column.unit.value ?? "unit unknown"}</option>)}</select></label><label><span>Y / OBSERVABLE</span><select value={yColumnId} onChange={(event) => setYColumnId(event.target.value)}>{numeric.map((column) => <option value={column.column_id} key={column.column_id}>{column.name} · {column.unit.value ?? "unit unknown"}</option>)}</select></label><button type="button" className="primary-button" onClick={() => void confirm()}>CONFIRM BINDING <Check size={15} /></button></div></section>;
+}
+
+function GenericEvidenceDeck({ profile, evidence, method }: { profile: GenericProfile; evidence: Detail["data_evidence"]; method: string }) {
+  return <div className="evidence-layout"><div className="trace-wrap generic-data-bay"><div className="field-caption"><span>COLUMN / TYPE / UNIT / MISSING</span><span>BOUND BEFORE INTERPRETATION</span></div><div className="generic-column-table">{profile.columns.slice(0, 6).map((column) => <div key={column.column_id}><span>{column.name}</span><span>{column.inferred_type}</span><span>{column.unit.value ?? "—"} / {column.unit.status}</span><span>{column.missing_count} missing</span></div>)}</div><div className="generic-facts">{evidence?.length ? evidence.slice(-2).map((item) => <p key={item.evidence_id}><strong>{item.operation.toUpperCase()}</strong> · {item.fact_text}</p>) : <p><strong>NO MATERIALIZED FACT YET</strong> · Codex must request an allowlisted operation after the researcher freezes this binding.</p>}</div></div><div className="measurement-boundary"><div className="boundary-code"><span>METHOD /</span><strong>GENERIC TABULAR</strong></div><div className="boundary-row"><span>CONTEXT</span><strong>{method.slice(0, 92)}{method.length > 92 ? "…" : ""}</strong></div><div className="boundary-row"><span>REQUIRES</span><strong>CONFIRMED COLUMN ROLES + UNITS</strong></div><div className="equation">DATA → FACT → ALIGNMENT</div></div></div>;
 }
 
 function TraceChart({ rows }: { rows: Dataset["rows"] }) {

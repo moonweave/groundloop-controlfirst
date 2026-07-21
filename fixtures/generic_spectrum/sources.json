@@ -1,0 +1,13 @@
+[
+  {
+    "id": "src-spectrum-method-limit",
+    "title": "Steady-state spectral assignment limitation",
+    "authors": ["GroundLoop demonstration source"],
+    "year": 2026,
+    "url_or_doi": "https://example.invalid/groundloop-spectrum-limit",
+    "locator": {"section": "Labelled demonstration excerpt"},
+    "untrusted_content": "A steady-state emission feature alone does not uniquely assign a microscopic emissive state. Temperature-dependent, power-dependent, or time-resolved controls can distinguish compatible alternatives when their measurement conditions are matched.",
+    "retrieval_provider": "openalex",
+    "publication_status": "indexed_abstract"
+  }
+]

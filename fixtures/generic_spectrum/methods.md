@@ -1,0 +1,1 @@
+Steady-state photoluminescence spectra were exported as wavelength and intensity tables from the same sample under fixed excitation, collection geometry, and integration time. This is a labelled demonstration fixture, not a material-specific mechanism conclusion.
