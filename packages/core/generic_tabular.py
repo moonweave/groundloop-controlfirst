@@ -196,7 +196,7 @@ def materialize_evidence(
     allowed = {
         "raw_slice", "column_summary", "endpoint_delta", "argmax", "argmin", "range_extrema",
         "linear_fit", "correlation", "monotonicity", "group_summary", "grouped_extrema",
-        "hysteresis_window", "power_law_fit", "local_peak", "group_comparison",
+        "hysteresis_window", "power_law_fit", "local_peak", "group_comparison", "band_comparison",
     }
     if operation not in allowed:
         raise ValueError("unsupported deterministic evidence operation")
@@ -306,6 +306,48 @@ def materialize_evidence(
             fact = f"Within rows {row_start}–{row_end}, {names[1]} has {len(peaks)} strict local peak(s); the strongest is at {names[0]}={strongest['x']:.6g} with prominence {strongest['prominence']:.6g}."
         else:
             fact = f"Within rows {row_start}–{row_end}, {names[1]} has no strict local peak above the requested prominence threshold."
+        hint = "line"
+    elif operation == "band_comparison":
+        if len(selected_columns) < 2:
+            raise ValueError("band_comparison requires X and Y columns")
+        pairs = _numeric_pairs(rows, names[0], names[1])
+        required = ("reference_min", "reference_max", "comparison_min", "comparison_max")
+        if any(item not in parameters for item in required):
+            raise ValueError("band_comparison requires reference_min, reference_max, comparison_min, and comparison_max parameters")
+        reference_min = float(parameters["reference_min"])
+        reference_max = float(parameters["reference_max"])
+        comparison_min = float(parameters["comparison_min"])
+        comparison_max = float(parameters["comparison_max"])
+        if reference_min > reference_max or comparison_min > comparison_max:
+            raise ValueError("band_comparison band minima must be less than or equal to maxima")
+        if max(reference_min, comparison_min) <= min(reference_max, comparison_max):
+            raise ValueError("band_comparison requires non-overlapping reference and comparison bands")
+        reference_values = [y for x, y in pairs if reference_min <= x <= reference_max]
+        comparison_values = [y for x, y in pairs if comparison_min <= x <= comparison_max]
+        if not reference_values or not comparison_values:
+            raise ValueError("band_comparison requires at least one finite pair in each requested band")
+        reference_mean = mean(reference_values)
+        comparison_mean = mean(comparison_values)
+        delta = comparison_mean - reference_mean
+        percent_change = None if reference_mean == 0 else delta / reference_mean * 100
+        reference_label = str(parameters.get("reference_label") or "reference_band")
+        comparison_label = str(parameters.get("comparison_label") or "comparison_band")
+        result = {
+            "reference_label": reference_label,
+            "comparison_label": comparison_label,
+            "reference_band": {"min_x": reference_min, "max_x": reference_max, "count": len(reference_values), "mean": reference_mean, "min_y": min(reference_values), "max_y": max(reference_values)},
+            "comparison_band": {"min_x": comparison_min, "max_x": comparison_max, "count": len(comparison_values), "mean": comparison_mean, "min_y": min(comparison_values), "max_y": max(comparison_values)},
+            "delta_mean": delta,
+            "percent_change": percent_change,
+        }
+        change_text = "undefined percent change" if percent_change is None else f"{percent_change:.6g}%"
+        fact = (
+            f"{names[1]} mean changes from {reference_mean:.6g} in {reference_label} "
+            f"({names[0]} {reference_min:.6g}-{reference_max:.6g}, n={len(reference_values)}) "
+            f"to {comparison_mean:.6g} in {comparison_label} "
+            f"({names[0]} {comparison_min:.6g}-{comparison_max:.6g}, n={len(comparison_values)}), "
+            f"delta={delta:.6g} ({change_text})."
+        )
         hint = "line"
     elif operation == "correlation":
         if len(selected_columns) < 2:

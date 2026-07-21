@@ -23,6 +23,7 @@ TEMPERATURE_CONTROL = b"temperature_c,peak_intensity_counts\n20,41\n40,58\n60,79
 CYCLIC_TRACE = b"potential_v,current_ua,direction\n-0.40,0.2,forward\n-0.20,0.4,forward\n0.00,1.2,forward\n0.15,4.8,forward\n0.30,2.0,forward\n0.45,0.8,forward\n0.60,0.3,forward\n0.45,-0.4,reverse\n0.30,-1.6,reverse\n0.15,-3.9,reverse\n0.00,-1.0,reverse\n-0.15,-0.3,reverse\n-0.30,-0.1,reverse\n"
 IV_TRAP_SWEEP = b"voltage_v,current_a\n0.2,4.554603e-11\n0.3,1.183316e-10\n0.5,3.917102e-10\n0.8,1.184055e-09\n1.2,3.068870e-09\n1.8,7.954893e-09\n2.5,1.722466e-08\n3.5,3.795740e-08\n5.0,8.800754e-08\n7.0,1.932585e-07\n10.0,4.477442e-07\n"
 GROUPED_TRAP_DENSITY = b"sample_id,condition,trap_density_cm3\nc1,control,1.2e16\nc2,control,1.1e16\nc3,control,1.3e16\nt1,treated,7.0e15\nt2,treated,8.0e15\nt3,treated,7.5e15\n"
+IMPEDANCE_RESPONSE = b"frequency_hz,z_abs_ohm,phase_deg\n1,820,-78\n3,760,-75\n10,690,-70\n100,310,-42\n1000,155,-18\n10000,128,-7\n100000,121,-3\n"
 
 
 def _codex_spectrum_proposal() -> MeasurementModalityProposal:
@@ -562,6 +563,139 @@ def test_group_comparison_requires_explicit_group_roles(tmp_path: Path) -> None:
     store.analyze_dataset(run_id)
     with pytest.raises(ValueError, match="reference_group and comparison_group"):
         store.materialize_data_evidence(run_id, "group_comparison", ["col-002", "col-003"], 2, 7)
+
+
+def test_impedance_band_comparison_keeps_bulk_transport_confounded(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    source = SourceInput(
+        id="src-impedance-limit",
+        title="Impedance attribution limits",
+        authors=["Test Lab"],
+        year=2026,
+        url_or_doi="https://example.invalid/impedance-limit",
+        locator={"section": "Methods"},
+        untrusted_content="Low-frequency impedance dispersion can arise from electrode polarization, interfaces, blocking contacts, or bulk ion transport; attribution requires geometry, electrode, temperature, or equivalent-circuit controls.",
+        retrieval_provider="manual",
+        publication_status="unknown",
+    )
+    detail = store.create_generic_run(
+        ClaimInput(claim="The low-frequency impedance response identifies bulk ion transport in the amorphous material."),
+        "Two-electrode impedance magnitude and phase were measured across frequency at room temperature. Electrode material, sample thickness, temperature, and equivalent-circuit fits were not varied.",
+        IMPEDANCE_RESPONSE,
+        [source],
+        filename="impedance-frequency-response.csv",
+    )
+    run_id = detail["run"]["run_id"]
+    store.record_measurement_modality(
+        run_id,
+        MeasurementModalityProposal(
+            candidate="generic_sweep",
+            confidence="medium",
+            reasons=["The artifact is a frequency sweep of impedance magnitude and phase; headers alone do not identify bulk ion transport."],
+            alternatives=["unknown"],
+            authority="codex",
+        ),
+    )
+    store.set_dataset_binding(
+        run_id,
+        DatasetBinding(
+            artifact_id="artifact-001",
+            x_column_id="col-001",
+            y_column_ids=["col-002", "col-003"],
+            confirmed_units={"col-001": "Hz", "col-002": "ohm", "col-003": "deg"},
+            confirmed_at="2026-07-21T00:00:00+00:00",
+        ),
+        "generic",
+    )
+    store.record_source_reviews(run_id, [SourceAdjudication(source_id="src-impedance-limit", verdict="direct", role="method_limit", rationale="The excerpt lists non-bulk alternatives and required controls for low-frequency impedance attribution.")])
+    store.prepare_packet(run_id)
+    store.inspect_sources(run_id, [{"expected_observation": "Low-frequency impedance dispersion is non-unique.", "condition": "Only the bounded excerpt is frozen.", "falsifier": "The excerpt says a single frequency sweep proves bulk ion transport.", "evidence_ref_ids": ["src-impedance-limit:evidence"]}])
+    store.analyze_dataset(run_id)
+    band = store.materialize_data_evidence(
+        run_id,
+        "band_comparison",
+        ["col-001", "col-002"],
+        2,
+        8,
+        {"reference_label": "high_frequency", "reference_min": 10000, "reference_max": 100000, "comparison_label": "low_frequency", "comparison_min": 1, "comparison_max": 10},
+    )
+    phase = store.materialize_data_evidence(
+        run_id,
+        "band_comparison",
+        ["col-001", "col-003"],
+        2,
+        8,
+        {"reference_label": "high_frequency", "reference_min": 10000, "reference_max": 100000, "comparison_label": "low_frequency", "comparison_min": 1, "comparison_max": 10},
+    )
+    assert band["result"]["reference_band"]["mean"] == pytest.approx(124.5)
+    assert band["result"]["comparison_band"]["mean"] == pytest.approx(756.6666666667)
+    assert band["result"]["percent_change"] > 500
+    assert phase["result"]["comparison_band"]["mean"] == pytest.approx(-74.3333333333)
+    store.record_signatures(
+        run_id,
+        [
+            RequiredSignature(id="signature-frequency-dispersion", name="Frequency dispersion", requirement="The impedance response should change between high and low frequency bands.", expected_observation="Low-frequency impedance magnitude is substantially different from the high-frequency band.", falsifying_outcome="No frequency-band difference is present.", theory_evidence_ref_ids=["src-impedance-limit:evidence"]),
+            RequiredSignature(id="signature-bulk-attribution", name="Bulk transport attribution", requirement="The low-frequency response must be separable from electrode polarization, interface, blocking-contact, or fitting artifacts.", expected_observation="A geometry, electrode, temperature, or equivalent-circuit control separates bulk from interface alternatives.", falsifying_outcome="The same response remains compatible with electrode/interface alternatives.", theory_evidence_ref_ids=["src-impedance-limit:evidence"]),
+            RequiredSignature(id="signature-control-dependent-scaling", name="Control-dependent scaling", requirement="Bulk ion transport should scale consistently with sample geometry or temperature rather than only electrode boundary conditions.", expected_observation="A matched control artifact records the expected scaling.", falsifying_outcome="No scaling control is recorded.", theory_evidence_ref_ids=["src-impedance-limit:evidence"]),
+        ],
+    )
+    convergence = store.record_alignments(
+        run_id,
+        [
+            AlignmentAdjudication(signature_id="signature-frequency-dispersion", status="Observed", rationale="GroundLoop materialized a large low-frequency versus high-frequency impedance-band difference and a strong low-frequency phase shift.", evidence_ref_ids=[band["evidence_id"], phase["evidence_id"]]),
+            AlignmentAdjudication(signature_id="signature-bulk-attribution", status="Confounded", rationale="The low-frequency response is real, but this two-electrode method does not separate bulk transport from electrode polarization, interface, blocking-contact, or fitting alternatives.", evidence_ref_ids=[band["evidence_id"], phase["evidence_id"], "method-evidence-frozen", "src-impedance-limit:evidence"], alternative_explanation="Electrode polarization, interfacial capacitance, blocking contacts, or equivalent-circuit non-uniqueness can produce the same low-frequency dispersion."),
+            AlignmentAdjudication(signature_id="signature-control-dependent-scaling", status="Missing", rationale="The Run contains no electrode, thickness, temperature, or equivalent-circuit control artifact.", missing_reason="not_measured"),
+        ],
+    )
+    assert convergence["dominant_gap"].startswith("Bulk transport attribution is confounded")
+    store.record_control_contract(
+        run_id,
+        ControlProposal(
+            confound="Low-frequency impedance response is not separated from electrode/interface polarization.",
+            experiment="Repeat the frequency response with matched blocking and non-blocking electrodes, or matched thickness series, while holding material batch, temperature, area, and amplitude fixed.",
+            preconditions=["same material batch", "same temperature", "same AC amplitude", "same area normalization"],
+            outcomes=[
+                {"if": "the dispersion scales with geometry or temperature consistently across electrode controls", "then": "bulk ion transport attribution gains bounded support."},
+                {"if": "the dispersion changes primarily with electrode boundary condition", "then": "electrode/interface polarization remains the dominant explanation."},
+            ],
+            signature_ref_ids=["signature-bulk-attribution", "signature-control-dependent-scaling"],
+            closes_signature_ids=["signature-control-dependent-scaling"],
+            leaves_open_signature_ids=["signature-bulk-attribution"],
+            required_artifact_labels=["electrode-control impedance sweep", "thickness-or-temperature sweep"],
+            priority="high",
+            feasibility="Requires one matched impedance control series.",
+        ),
+    )
+    report = store.export_report(run_id)
+    markdown = store.get_report_markdown(run_id)
+    assert report["verdict"]["label"] == "NOT_ESTABLISHED"
+    assert "impedance-frequency-response.csv" in markdown
+    assert "Bulk transport attribution is confounded" in markdown
+
+
+def test_band_comparison_requires_explicit_non_overlapping_bands(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    detail = store.create_generic_run(
+        ClaimInput(claim="A frequency response changes across bands."),
+        "Frequency response data were exported without enough context to choose bands automatically.",
+        IMPEDANCE_RESPONSE,
+        [_source()],
+        filename="impedance-frequency-response.csv",
+    )
+    run_id = detail["run"]["run_id"]
+    store.set_dataset_binding(
+        run_id,
+        DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_at="2026-07-21T00:00:00+00:00"),
+        "generic",
+    )
+    store.record_source_reviews(run_id, [SourceAdjudication(source_id="src-spectrum-limit", verdict="direct", role="method_limit", rationale="The source limits mechanism assignment.")])
+    store.prepare_packet(run_id)
+    store.inspect_sources(run_id, [{"expected_observation": "assignment is limited", "condition": "source excerpt is frozen", "falsifier": "excerpt does not describe a limitation", "evidence_ref_ids": ["src-spectrum-limit:evidence"]}])
+    store.analyze_dataset(run_id)
+    with pytest.raises(ValueError, match="reference_min"):
+        store.materialize_data_evidence(run_id, "band_comparison", ["col-001", "col-002"], 2, 8)
+    with pytest.raises(ValueError, match="non-overlapping"):
+        store.materialize_data_evidence(run_id, "band_comparison", ["col-001", "col-002"], 2, 8, {"reference_min": 1, "reference_max": 100, "comparison_min": 10, "comparison_max": 1000})
 
 
 def test_hysteresis_window_materializes_matched_group_separation(tmp_path: Path) -> None:
