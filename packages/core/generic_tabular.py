@@ -196,7 +196,7 @@ def materialize_evidence(
     allowed = {
         "raw_slice", "column_summary", "endpoint_delta", "argmax", "argmin", "range_extrema",
         "linear_fit", "correlation", "monotonicity", "group_summary", "grouped_extrema",
-        "hysteresis_window",
+        "hysteresis_window", "power_law_fit",
     }
     if operation not in allowed:
         raise ValueError("unsupported deterministic evidence operation")
@@ -271,6 +271,25 @@ def materialize_evidence(
         coefficient = sum((x - mean(xs)) * (y - mean(ys)) for x, y in pairs) / math.sqrt(dx * dy)
         result = {"pearson_r": coefficient, "point_count": len(pairs)}
         fact = f"Pearson correlation between {names[0]} and {names[1]} is {coefficient:.6g} across {len(pairs)} finite pairs."
+        hint = "scatter"
+    elif operation == "power_law_fit":
+        if len(selected_columns) < 2:
+            raise ValueError("power_law_fit requires X and Y columns")
+        pairs = _numeric_pairs(rows, names[0], names[1])
+        if any(x <= 0 or y <= 0 for x, y in pairs):
+            raise ValueError("power_law_fit requires all selected finite X/Y pairs to be positive; choose a positive row range explicitly")
+        if len(pairs) < 2:
+            raise ValueError("power_law_fit requires two positive finite numeric pairs")
+        log_pairs = [(math.log10(x), math.log10(y)) for x, y in pairs]
+        xs, ys = zip(*log_pairs)
+        mean_x, mean_y = mean(xs), mean(ys)
+        denominator = sum((value - mean_x) ** 2 for value in xs)
+        if denominator == 0:
+            raise ValueError("power_law_fit requires variation in positive X")
+        exponent = sum((x - mean_x) * (y - mean_y) for x, y in log_pairs) / denominator
+        log10_prefactor = mean_y - exponent * mean_x
+        result = {"exponent": exponent, "log10_prefactor": log10_prefactor, "positive_pair_count": len(pairs)}
+        fact = f"Power-law fit of {names[1]} versus {names[0]} has exponent {exponent:.6g} across {len(pairs)} positive finite pairs."
         hint = "scatter"
     elif operation == "hysteresis_window":
         if len(selected_columns) < 3:

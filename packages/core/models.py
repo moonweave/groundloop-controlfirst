@@ -353,7 +353,7 @@ class DataEvidence(StrictModel):
     operation: Literal[
         "raw_slice", "column_summary", "endpoint_delta", "argmax", "argmin", "range_extrema",
         "linear_fit", "correlation", "monotonicity", "group_summary", "grouped_extrema",
-        "hysteresis_window",
+        "hysteresis_window", "power_law_fit",
     ]
     parameters: dict[str, Any] = Field(default_factory=dict)
     result: dict[str, Any]

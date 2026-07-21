@@ -151,7 +151,7 @@ replace them with web results, memory, or a newly generated CSV interpretation.
 
 For a generic v2 Run, immediately request the minimum allowlisted data facts
 needed for the signatures (`argmax`, `endpoint_delta`, `grouped_extrema`, `monotonicity`,
-`hysteresis_window`, `correlation`, etc.). GroundLoop returns exact selectors and stable IDs.
+`hysteresis_window`, `power_law_fit`, `correlation`, etc.). GroundLoop returns exact selectors and stable IDs.
 
 ### 5. Record the Convergence Map
 

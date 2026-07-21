@@ -4,7 +4,7 @@
 
 - Public repository: `https://github.com/moonweave/groundloop-controlfirst`
 - License: MIT (`LICENSE`)
-- Python suite: `70 passed`
+- Python suite: `72 passed`
 - Web quality gate: lint, TypeScript check, and production build pass
 - Secret scan: no leaks found
 - Judge path: `README.md` → Install → register MCP → install `groundloop-controlfirst` skill → `./scripts/demo.sh` → generic CSV or R(T) method-aware fixture → copy Codex brief → Codex/GPT-5.6 MCP workflow → source-role review → UI freeze → signatures/alignments/control → exported report

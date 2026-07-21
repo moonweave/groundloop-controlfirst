@@ -55,6 +55,7 @@ selection. The v2 allowlist is:
 - `argmax` / `argmin`
 - `range_extrema`
 - `linear_fit`
+- `power_law_fit`
 - `correlation`
 - `monotonicity`
 - `group_summary`

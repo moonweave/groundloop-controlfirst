@@ -94,7 +94,7 @@ The generic v2 path is the canonical research workflow:
 4. Codex may search literature outside GroundLoop and import bounded candidates with provider, publication status, query, rationale, locator, and excerpt hash. Literature informs theory basis, method limits, and controls; it does not prove that this Run's data observed the mechanism. GroundLoop never fetches the supplied URL or DOI; imported candidates remain unreviewed.
 5. The researcher confirms one X column, up to three Y columns, optional grouping/order, units, and an optional measurement capability pack for every artifact. `generic` is always valid.
 6. Codex semantically reviews every candidate by role. The researcher freezes the exact claim, method, artifact IDs, hashes, profiles, bindings, capability pack metadata, selected excerpts, and source provenance.
-7. Codex requests allowlisted operations such as `argmax`, `endpoint_delta`, `grouped_extrema`, `hysteresis_window`, `linear_fit`, `correlation`, or `monotonicity` against explicit artifact IDs. GroundLoop returns the only valid data-evidence IDs and calculated facts.
+7. Codex requests allowlisted operations such as `argmax`, `endpoint_delta`, `grouped_extrema`, `hysteresis_window`, `power_law_fit`, `linear_fit`, `correlation`, or `monotonicity` against explicit artifact IDs. GroundLoop returns the only valid data-evidence IDs and calculated facts.
 8. Codex records signatures, alignments, one control, and an export. `Observed` and `Contradicted` require GroundLoop-materialized data evidence. `Confounded` also requires a named alternative plus method/source limit evidence.
 
 The included `generic_spectrum` fixture demonstrates this path with

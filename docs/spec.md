@@ -61,7 +61,7 @@ The current Build Week slice includes:
 - local CSV profiling, hashes, column IDs, and confirmed bindings;
 - Codex-imported literature candidates without URL fetching;
 - semantic source review and source roles;
-- allowlisted deterministic evidence operations such as extrema, deltas, monotonicity, linear fits, correlations, and hysteresis windows;
+- allowlisted deterministic evidence operations such as extrema, deltas, monotonicity, linear fits, power-law fits, correlations, and hysteresis windows;
 - Convergence Map signatures and alignments;
 - one atomic ControlFirst contract;
 - JSON and Markdown export with provenance.
