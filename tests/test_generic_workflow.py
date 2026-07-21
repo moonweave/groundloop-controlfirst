@@ -1349,6 +1349,12 @@ def test_generic_profiler_displays_electrical_units_with_standard_case() -> None
     assert profile.columns[3].unit.value == "Hz"
 
 
+def test_generic_profiler_treats_density_cm3_as_inverse_volume_candidate() -> None:
+    _, profile = profile_csv(b"sample_id,trap_density_cm3,volume_cm3\nA,1e16,0.2\n")
+    assert profile.columns[1].unit.value == "cm^-3"
+    assert profile.columns[2].unit.value == "cm"
+
+
 @pytest.mark.parametrize("raw", [b",intensity\n1,2\n", b"x,x\n1,2\n", b"x,y\n1\n"])
 def test_generic_profiler_rejects_unsafe_headers_or_width(raw: bytes) -> None:
     with pytest.raises(ValueError):

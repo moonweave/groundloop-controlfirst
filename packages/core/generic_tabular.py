@@ -91,6 +91,12 @@ def _number(value: str | None) -> float | None:
 
 def _candidate_unit(name: str) -> UnitDescriptor:
     tokens = [token.lower() for token in re.findall(r"[A-Za-z%]+", name)]
+    lowered = name.lower()
+    if re.search(r"(?:^|[_\-\s])(?:density|concentration|trap|carrier)(?:$|[_\-\s])", lowered):
+        inverse_volume = re.search(r"(?:^|[_\-\s])(cm|m|mm|um|nm)3(?:$|[_\-\s])", lowered)
+        if inverse_volume:
+            base = _UNIT_DISPLAY.get(inverse_volume.group(1), inverse_volume.group(1))
+            return UnitDescriptor(value=f"{base}^-3", source="header", status="candidate")
     for left, marker, right in zip(tokens, tokens[1:], tokens[2:]):
         if marker == "per" and left in _KNOWN_UNITS and right in _KNOWN_UNITS:
             candidate = f"{_UNIT_DISPLAY.get(left, left)}/{_UNIT_DISPLAY.get(right, right)}"
