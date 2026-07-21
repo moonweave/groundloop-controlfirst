@@ -491,7 +491,7 @@ function App() {
         body: JSON.stringify({ fixture_name: "four_wire_contact_control" }),
       });
       await openRun(created.run_id);
-      setNotice("MCP-ready resistance sweep opened. Review sources, freeze the packet, then paste the Codex brief.");
+      setNotice("MCP-ready method-aware R(T) fixture opened. Review sources, freeze the packet, then paste the Codex brief.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to open the guided Run.");
       setBusy(false);
@@ -618,7 +618,7 @@ function Landing({
         </div>
       </section>
       <section className="landing-bottom">
-        <button className="demo-strip" type="button" onClick={() => void onOpenDemo()} disabled={busy}><div className="demo-orbit"><Radio size={16} /><span>LEGACY DEMO</span></div><div><strong>Open the R(T) contact-control fixture</strong><span>Preserved transport fixture, separate from the generic tabular path</span></div><ArrowRight size={17} /></button>
+        <button className="demo-strip" type="button" onClick={() => void onOpenDemo()} disabled={busy}><div className="demo-orbit"><Radio size={16} /><span>METHOD-AWARE DEMO</span></div><div><strong>Open the R(T) contact-control fixture</strong><span>Deep transport fixture, separate from the generic tabular path</span></div><ArrowRight size={17} /></button>
         <div className="recent-runs"><div className="section-cap"><span>RECENT RUNS</span><span>{runs.length.toString().padStart(2, "0")}</span></div>{runs.length === 0 ? <p className="empty-note">Start with a bounded CSV, then confirm its binding before freezing.</p> : runs.slice(0, 3).map((run) => <button key={run.run_id} type="button" onClick={() => void onOpenRun(run.run_id)}><span>{formatId(run.run_id)}</span><span>{run.state.replaceAll("_", " ")}</span><ChevronDown size={14} /></button>)}</div>
       </section>
     </main>

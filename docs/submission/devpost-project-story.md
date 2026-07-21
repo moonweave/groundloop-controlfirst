@@ -2,56 +2,63 @@
 
 ## Inspiration
 
-Experimental research often gets stuck at a deceptively small gap: a graph can show a real change, while the mechanism used to explain that change is still untested. A falling two-wire resistance trace, for example, can arise from the sample, contacts, or leads. Existing research assistants are good at finding and summarizing papers; the moment we needed help was later: deciding what the current evidence actually justifies and what one measurement would resolve the ambiguity.
+The research bottleneck I wanted to attack is not “find me more papers.” It is the moment after a researcher already has a plausible theory, a measurement, and a plot that looks meaningful. That is where overclaiming happens: a curve changes, a spectrum has a peak, or a device response shifts, and the team starts talking as if the mechanism has been established.
+
+GroundLoop exists for that gap. It asks a stricter question: what does this specific measurement actually identify, what remains confounded, and what one experiment would decide the next step?
 
 ## What it does
 
-GroundLoop: ControlFirst is a local, Codex-native scientific red team for an experimental claim. A researcher records one claim, a bounded source set, a methods note, and a CSV. GroundLoop then keeps four conclusion states visibly separate:
+GroundLoop is a local, Codex-native evidence-bound research workspace for materials, electronics, and functional-device experiments. A researcher starts with a claim, method notes, one or more bounded CSV artifacts, and literature candidates. GroundLoop profiles the data locally, keeps the Run state and hashes, requires researcher-confirmed measurement bindings, and makes Codex commit every scientific judgment through typed MCP contracts.
 
-- **Established** — supplied source excerpts support it.
-- **Observed** — it is deterministically present in the supplied data.
-- **Inferred** — it is a plausible interpretation, with uncertainty and an alternative explanation.
-- **Unresolved** — the missing evidence that blocks a decision.
+Every Convergence Map separates four states:
 
-Instead of returning a generic confidence score, it produces one **ControlFirst** experiment: the smallest next test that can distinguish the proposed mechanism from a plausible confound.
+- **Observed** — the required signature is directly present in the data.
+- **Confounded** — the data is compatible, but a named alternative explanation remains viable.
+- **Missing** — the required observable is outside the measurement boundary.
+- **Contradicted** — the measured result opposes the required signature.
 
-The Build Week demo deliberately uses a conservative resistance-temperature fixture. It observes a 45.8% fall in a two-wire resistance trace, but refuses to claim a bulk conductivity transition until the same sweep is repeated in four-terminal mode with the sample, current, mounting, and temperature program held fixed.
+The output is not a generic confidence score. It is one smallest discriminating control experiment: the next measurement that could separate the proposed mechanism from the main confound.
 
 ## Why it is different
 
-GroundLoop does not try to replace scientific judgment or peer review. It turns an often implicit research move into a transparent, reviewable loop:
+Most research tools focus on what the literature says. GroundLoop focuses on what the current experiment can identify.
 
-1. Start **top-down** with what measurement theory says a method can and cannot establish.
-2. Check **bottom-up** what the actual data record contains.
-3. Commit only a provenance-bound decision and one discriminating control.
+The workflow is deliberately split:
 
-The useful output is not “the model is confident.” It is “this observation is real; this mechanism is not yet established; here is the next test that can decide.”
+1. Codex and GPT-5.6 do the semantic work: literature exploration, source-role review, signature decomposition, alignment reasoning, and control design.
+2. GroundLoop owns the boundary: local data profiles, artifact hashes, source candidate provenance, review status, evidence IDs, freeze gates, validation rules, and export.
+3. The researcher owns the final freeze and interpretation boundary.
+
+That makes the tool useful even when the answer is conservative. “Not established yet” becomes actionable because the system also says exactly what to measure next.
 
 ## How we built it
 
-GroundLoop is a local Python and React application with a loopback-only FastAPI adapter and a stdio MCP server. The shared typed core freezes an evidence packet, calculates the resistance trace deterministically, validates finding states and provenance locators, and exports the saved report. Automatic reference discovery is deliberately bounded to fixed OpenAlex and arXiv scholarly endpoints; returned abstracts remain untrusted evidence rather than instructions, and arXiv results are visibly marked as preprints.
+GroundLoop is a Python and React application with a loopback-only FastAPI adapter, a typed local evidence core, and a stdio MCP server for Codex. It accepts generic UTF-8 CSV measurements, profiles arbitrary headers, supports multiple measurement artifacts, requires explicit column bindings, and only lets Codex cite GroundLoop-materialized evidence IDs for observed or contradicted data claims.
 
-The companion UI makes the workflow legible: frame the question, preserve evidence, check evidence, then decide the next test. The report leads with the decision sequence—what changed, what cannot yet be claimed, and what test can decide—before exposing detailed evidence.
+The first deep capability pack is electrical transport R(T), where a falling two-wire resistance trace is real but still confounded by contact and lead contributions. The generic path is broader: spectra, sweeps, time series, grouped comparisons, cyclic traces, and actuator-like CSVs can enter the same evidence-bound workflow without pretending that GroundLoop has a complete scientific recipe for every domain.
+
+Literature search is not hardcoded into the product conclusion. Codex can search externally and import bounded source candidates with provider, publication status, query or rationale, locator, excerpt, and hash. Those candidates start unreviewed. They only become direct evidence after Codex semantically reviews the supplied excerpt and assigns a role such as `theory_basis`, `method_limit`, or `discriminating_control`.
 
 ## How we used Codex and GPT-5.6
 
-Codex was the implementation collaborator: it helped define the ControlFirst workflow, build the typed state machine, local API, MCP surface, and React interface, then drove the same fixture-to-report path that a judge can run.
+Codex was the implementation collaborator and the runtime scientific operator. It helped build the run store, evidence contracts, MCP tools, React companion UI, tests, and submission path. It also drives the actual GroundLoop workflow a judge can run: inspect a CSV profile, import literature candidates, review sources, stop at the human freeze gate, materialize data facts, record signatures and alignments, commit one control contract, and export the report.
 
-GPT-5.6 is used through Codex as the bounded reasoning host. It can explore hypotheses and counterarguments over a frozen packet, but GroundLoop constrains the saved decision: every finding must cite a supplied evidence ID; inference must include uncertainty and an alternative explanation; and the result must contain one ControlFirst proposal with two discriminating outcomes. No OpenAI API key is required by GroundLoop.
+GPT-5.6 is used through Codex as the reasoning host. GroundLoop does not require an OpenAI API key and the UI does not make model calls. GPT-5.6 handles the hard semantic work, while GroundLoop constrains what can be saved: search snippets are not evidence, title-only claims are rejected, observed or contradicted alignments require local data evidence IDs, and source support must come from reviewed bounded excerpts.
 
 ## Challenges we ran into
 
-The central design challenge was avoiding a polished but overconfident research chatbot. We had to make the conservative conclusion feel like progress. The answer was to make the missing control concrete and visual, while preserving the richer source and dataset detail for reviewers who need to audit it.
+The hardest product decision was resisting the urge to look universal. A general scientific chatbot would be easier to pitch but less trustworthy. We instead built a narrow boundary that can accept many tabular measurement forms while being explicit about what is generic, what is method-aware, and what still needs a domain pack.
 
-We also kept the demonstrator narrow. It supports a reproducible two-wire resistance-temperature CSV workflow rather than claiming that one tool can validate arbitrary scientific data.
+The second challenge was making a conservative answer feel valuable. The UI had to make “this is confounded” as useful as a positive result by pairing it with a concrete next experiment.
 
 ## What we are proud of
 
-- A real, runnable fixture-to-report loop instead of a static mockup.
-- A clear separation between observation and mechanism claim.
-- Provenance-bound conclusions that make it difficult to save unsupported confidence.
-- One decisive next experiment, understandable at a glance.
+- A runnable end-to-end Run rather than a static research mockup.
+- A clear split between literature claims, measured facts, and mechanism interpretation.
+- Codex-authored reasoning that is reviewable, typed, and provenance-bound.
+- A generic CSV path that avoids making the project look like a resistance-only analyzer.
+- A deep R(T) fixture that shows why method limits matter in real experimental work.
 
 ## What's next
 
-We will broaden the data adapters while retaining the same decision contract, add more measurement-specific control templates, and evaluate whether the workflow improves how research groups document and resolve competing interpretations.
+Next we would evaluate the workflow with real lab users, add more method-aware packs for materials and electronics measurements, and support multi-artifact evidence Runs where a claim depends on a primary measurement plus a separate control, calibration, or replicate artifact.

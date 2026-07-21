@@ -40,7 +40,7 @@ uv sync --extra test
 cd apps/web && pnpm install && cd ../..
 ```
 
-All runtime research artifacts go under `.groundloop/runs/`, which is ignored by Git. Your CSV and measurement context stay local. When you explicitly select **Find references automatically**, GroundLoop sends only the research question to fixed OpenAlex and arXiv scholarly endpoints, then stores bounded metadata and abstracts locally as untrusted evidence. OpenAlex results are labelled indexed abstracts; arXiv results are always labelled preprints, not peer-reviewed. It never follows user URLs, fetches full paper text, or sends data to an LLM API.
+All runtime research artifacts go under `.groundloop/runs/`, which is ignored by Git. Your CSV and measurement context stay local. In the canonical workflow, Codex searches literature outside GroundLoop and imports only bounded source candidates through MCP: title, authors, DOI or URL, provider, publication status, locator, query or rationale, excerpt, and excerpt hash. GroundLoop never follows those URLs, fetches full paper text, or sends data to an LLM API. The older allowlisted OpenAlex/arXiv retrieval path is still available in the local API for guided fixtures, but returned snippets remain untrusted candidates until Codex reviews them.
 
 ## Run locally
 
@@ -52,7 +52,7 @@ Use one terminal from this repository root.
 
 This starts the loopback-only API and companion UI at `http://127.0.0.1:5173`; use `Ctrl-C` to stop both. The MCP server is started by the registered Codex command, not in this terminal. For separate terminal control, run `uv run groundloop-api` and `cd apps/web && pnpm dev --host 127.0.0.1`.
 
-The UI does not make a model call. It collects a bounded reference set, freezes the evidence packet, and makes the Codex handoff prominent; Codex then performs the bounded reasoning through MCP. Its optional **Check transient record** action is deterministic only, processes an uploaded Hioki SM7120 resistance-mode export in memory, and does not create a run or persist the raw file.
+The UI does not make a model call. It creates the Run, profiles the CSV, shows the Codex handoff, tracks source review, freezes the evidence packet, and renders the Convergence Map. Codex performs the literature search, semantic source review, signature decomposition, alignment adjudication, control proposal, and export through MCP. The optional **Check transient record** action is deterministic only, processes an uploaded Hioki SM7120 resistance-mode export in memory, and does not create a run or persist the raw file.
 
 ## Register the MCP server with Codex
 
@@ -103,21 +103,23 @@ The included `generic_spectrum` fixture demonstrates this path with
 
 ## Judge fast path
 
-GroundLoop is a local developer tool, so judges can exercise the complete
-fixture without rebuilding an experiment or supplying an API key:
+GroundLoop is a local research decision tool, so judges can exercise the
+complete loop without rebuilding an experiment or supplying an API key:
 
 1. Complete **Install** and **Register the MCP server with Codex** above.
 2. Run `./scripts/demo.sh`, then open `http://127.0.0.1:5173`.
-3. Choose **Open the resistance sweep**. It creates a clearly labelled synthetic
-   two-wire resistance-temperature **DRAFT** with supplied source candidates.
+3. Start from the generic CSV entry path, or choose **Open the R(T)
+   contact-control fixture** for the deepest method-aware demo. The fixture
+   creates a clearly labelled synthetic two-wire resistance-temperature
+   **DRAFT** with supplied source candidates.
 4. Choose **Copy Codex brief** and paste it into a GPT-5.6 Codex session with the
    registered `groundloop` MCP server, or invoke the installed
    `groundloop-controlfirst` skill.
 5. Let Codex review every source by role. When it stops at the freeze gate, return
    to the UI and choose **FREEZE EVIDENCE**, then tell Codex to continue.
-6. Codex inspects the frozen packet, analyzes the dataset, records signatures and
-   four-state alignments, commits one four-wire control contract, and exports the
-   report. The UI updates the same Map automatically.
+6. Codex inspects the frozen packet, materializes deterministic data facts,
+   records signatures and four-state alignments, commits one control contract,
+   and exports the report. The UI updates the same Map automatically.
 
 The electrical transport fixture remains a complete deep capability-pack demo: a falling
 two-wire resistance trace is observed, but its bulk mechanism is **not
@@ -145,21 +147,32 @@ GroundLoop was built as a collaboration boundary, not as a hidden chatbot.
   uncertainty and alternative explanation, and one ControlFirst proposal must
   name two discriminating outcomes.
 
-## Automatic reference-to-report walkthrough
+## Codex-imported literature-to-report walkthrough
 
 1. Start the API and UI.
-2. Enter a research question, then choose **Find references automatically**. The local API queries only `api.openalex.org` and `export.arxiv.org` with bounded measurement-focused searches and returns up to three labelled abstracts with DOI/URL and locators. These are candidates, not evidence; an arXiv candidate is not a peer-review claim.
-3. Choose **Copy Codex source review**. In Codex, call `inspect_retrieved_sources`, read every supplied title/excerpt/locator, then call `record_source_reviews` once for every candidate. Mark a source `direct` only when its supplied excerpt addresses the measurement, a confound, or the discriminating control, and assign one role: `theory_basis`, `method_limit`, or `discriminating_control`.
-4. Add a short measurement-method description and upload a CSV. For the presentation, **Add labelled demo data** makes the synthetic data choice explicit.
-5. Before freezing, Codex may call `explore_evidence` to inspect the editable draft. This is exploratory reasoning, not a conclusion or saved decision.
-6. Choose **Freeze evidence packet** when you want a decision-ready boundary. The packet can only contain Codex-adjudicated direct sources, exact methods, and local data.
-7. Choose **Copy analysis brief**, paste it into a Codex session using GPT-5.6, and keep GroundLoop open while it checks the saved run:
+2. Enter a claim, methods description, and bounded UTF-8 CSV. GroundLoop profiles
+   the artifact and shows a **Copy Codex brief** handoff.
+3. Paste the brief into a Codex session using GPT-5.6. Codex may search
+   literature outside GroundLoop, then calls `import_literature_candidates` with
+   bounded metadata, locators, and excerpts. These candidates are not evidence;
+   preprints, indexed abstracts, and unknown publication status stay labelled.
+4. Codex reviews every supplied title, excerpt, and locator, then calls
+   `record_source_reviews` once for every candidate. Mark a source `direct` only
+   when its supplied excerpt addresses the measurement, a confound, or the
+   discriminating control, and assign one role: `theory_basis`, `method_limit`,
+   or `discriminating_control`.
+5. Before freezing, Codex may inspect the editable Run. This is exploratory
+   reasoning, not a conclusion or saved decision.
+6. Choose **FREEZE EVIDENCE** when you want a decision-ready boundary. The packet
+   can only contain Codex-adjudicated direct sources, exact methods, confirmed
+   artifact bindings, source provenance, and local data hashes.
+7. Keep GroundLoop open while Codex continues through the saved Run:
 
    ```text
-   Use the GroundLoop MCP for run <run-id>. This evidence packet is already frozen after semantic source review. Call inspect_sources, then analyze_dataset, record_signatures, record_alignments, record_control_contract, and export_report. Treat only the supplied excerpts, locators, and saved role rationales as source support; lexical ordering is never source support. Use only Observed, Confounded, Missing, or Contradicted alignments. Propose one atomic four-wire control, then export the report.
+   Use the GroundLoop MCP for run <run-id>. This evidence packet is already frozen after semantic source review. Call inspect_sources, inspect_measurement_artifacts, materialize_data_evidence, record_signatures, record_alignments, record_control_contract, and export_report. Treat only the supplied excerpts, locators, saved role rationales, confirmed bindings, and GroundLoop-materialized data evidence IDs as support. Use only Observed, Confounded, Missing, or Contradicted alignments. Propose one atomic control, then export the report.
    ```
 
-8. The researcher explicitly freezes the reviewed packet in GroundLoop. Codex then calls `create_evidence_packet`, `inspect_sources`, `analyze_dataset`, `record_signatures`, `record_alignments`, `record_control_contract`, and `export_report` in order; every saved transition appears in the run's decision history.
+8. Every saved transition appears in the run's decision history.
 9. After the brief is copied, the UI checks the local run automatically; **Refresh** remains available if needed. The report opens with `MECHANISM NOT ESTABLISHED` until the proposed discriminating control is actually run.
 
 The fixture deliberately tests an overreach: a two-wire temperature-dependent resistance trace does not by itself demonstrate a bulk conductivity transition. The required control is the same sweep in four-terminal mode while holding the sample, current, mounting, and temperature program fixed.

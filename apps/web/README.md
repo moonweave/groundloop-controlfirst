@@ -1,58 +1,29 @@
-# frontend-stack
+# GroundLoop web companion
 
-Free / open-source frontend stack starter. A reusable base for landing pages, dashboards, and SaaS UIs — no project-specific code, just the stack wired up and proven.
+This is the local React companion UI for GroundLoop. It does not call an LLM or upload research data. It talks only to the loopback FastAPI service started from the repository root.
 
-The `Helix` landing page in `src/App.tsx` is **demo content** showing the stack's range; swap it out per project.
+## Run from the repository root
 
-## Stack (all free / OSS)
+```bash
+./scripts/demo.sh
+```
 
-| Layer | Tool |
-|---|---|
-| Build / dev / HMR | Vite, pnpm |
-| Framework | React 19 + TypeScript |
-| Styling | Tailwind CSS v4 |
-| Components | shadcn/ui (Radix-based, code you own) |
-| Motion | Motion |
-| Charts | Recharts (via shadcn `chart`) |
-| Icons | Lucide |
-| Font | Geist (Fontsource) |
+Then open `http://127.0.0.1:5173`.
 
-Optional free add-ons: **Magic UI / Aceternity** (copy-paste flashy components), **tweakcn** (theme-token editor).
-
-## Getting started
+## Run the web app directly
 
 ```bash
 pnpm install
-pnpm dev      # http://localhost:5173
-pnpm build    # production build
+pnpm dev --host 127.0.0.1
+pnpm lint
+pnpm exec tsc -b --noEmit
+pnpm build
 ```
 
-## Reusable bits
+Set `VITE_GROUNDLOOP_API` only if the local API is not running at the default `http://127.0.0.1:8765`.
 
-`src/components/motion-primitives.tsx` is project-agnostic — copy it anywhere:
+## Product boundary
 
-- `Reveal`, `RevealStagger`, `RevealItem` — scroll-triggered fade-up (staggered)
-- `NumberTicker` — count-up on view
-- `Marquee` — infinite logo/row scroller
-- `ScrollProgress` — top gradient progress bar
-- `SpotlightCard` — cursor-following glow on hover
-- `PulseGlow` — breathing glow behind a featured element
-
-## Recreate from scratch
-
-```bash
-pnpm create vite@latest my-app --template react-ts
-cd my-app && pnpm install
-pnpm add tailwindcss @tailwindcss/vite motion recharts lucide-react
-pnpm add -D @types/node
-# vite.config.ts: tailwindcss() plugin + '@'->src alias + resolve.dedupe ['react','react-dom']
-# src/index.css first line: @import "tailwindcss";
-pnpm dlx shadcn@latest init -d -b radix --yes
-pnpm dlx shadcn@latest add button card badge accordion separator avatar sheet chart --yes
-```
-
-## Gotchas
-
-- **`resolve.dedupe: ['react', 'react-dom']` in `vite.config.ts` is required** — without it, pnpm's nested `node_modules` gives Motion two React copies and it crashes (`Cannot read properties of null (reading 'useContext')`).
-- **lucide-react has no brand icons** (`Github`/`Twitter`/`Linkedin` are missing) — use generic icons.
-- shadcn CLI `init -b` flag is component base (`radix` | `base`), not a base color.
+- The UI creates Runs, profiles CSV artifacts, displays source review state, freezes evidence, renders the Convergence Map, and opens Markdown exports.
+- Codex with GPT-5.6 performs literature exploration, source review, signature decomposition, alignment reasoning, and control design through the registered GroundLoop MCP server.
+- Search snippets, titles, and unreviewed candidates are not evidence.

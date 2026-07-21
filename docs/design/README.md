@@ -50,32 +50,32 @@ GroundLoop should feel like a scientific working paper, not an AI chat surface o
 
 ## Navigation and screens
 
-The product has four deliberate screens, matching the implementation contract:
+The product has four deliberate screens, matching the current implementation contract:
 
-1. **Frame question** — research question, automatic bounded reference discovery, methods note, and CSV. It produces a local packet only.
-2. **Preserve evidence** — immutable source/data cards and deterministic checks. It establishes the decision boundary.
-3. **Check evidence** — one deliberate copy action sends a concise analysis brief to Codex; no hidden model call comes from the browser. The UI then watches the saved run for the completed review.
-4. **Decide next test** — four-state findings, provenance ledger, and the single ControlFirst proposal.
+1. **Entry** — claim, methods, and bounded CSV. The generic path is first; the R(T) fixture remains an explicit method-aware demo.
+2. **Convergence Map** — artifact profiles, confirmed bindings, required signatures, alignment states, dominant gap, and control-pending or committed control rail.
+3. **Source Review** — imported literature candidates, provider/status/query/locator provenance, semantic review state, and evidence role.
+4. **Audit / Export** — one deliberate copy action sends the Run brief to Codex; no hidden model call comes from the browser. The UI then watches the saved run and renders the exported report.
 
 The static [report prototype](controlfirst-report-prototype.html) is an early structural experiment. The selected Alignment image above is the current visual target; persisted report JSON remains the source of truth for all visible content.
 
 ### Scope and relevance at setup
 
-The setup screen states the active template before retrieval: a two-wire resistance temperature sweep represented by the local canonical CSV. It never silently treats a broad scientific question as supported. A lightweight, non-blocking fit signal tells the researcher whether the wording appears transport-related; it warns without rejecting a legitimate but unusually phrased claim.
+The setup screen states the active boundary before a Run starts: generic tabular CSV by default, or the explicit R(T) contact-control fixture when selected. It never silently treats a broad scientific question as supported. Header and unit inference are advisory; Codex must still read the method and literature before committing signatures or controls.
 
-Retrieved abstracts are ordered before freezing with **High lexical overlap — not evidence**, **Contextual lexical overlap — not evidence**, or **Limited lexical overlap — not evidence**. These labels only set reading order; they are never shown as the reason a source was accepted. Every candidate also shows its provenance status: **OpenAlex indexed abstract** or **arXiv preprint · not peer-reviewed**. Codex must classify every supplied excerpt and locator as direct, contextual, or reject. Once saved, the semantic rationale—not lexical overlap—is shown in the frozen packet and report.
+Imported literature candidates show provider, publication status, locator, query or discovery rationale, and excerpt hash. They are untrusted candidates until Codex classifies every supplied excerpt and locator as direct, contextual, or reject. Once saved, the semantic rationale—not lexical overlap or title match—is shown in the frozen packet and report.
 
-After that source review, the researcher explicitly freezes the selected sources, method, and CSV. The UI records this event and every later MCP save in a visible decision history. A frozen packet always produces exactly four findings—Established, Observed, Inferred, and Unresolved—and one atomic ControlFirst experiment. Follow-up controls are presented as later work, never bundled into the first discriminating experiment.
+After source review and data binding, the researcher explicitly freezes the selected sources, method, artifact hashes, and bindings. The UI records this event and every later MCP save in a visible decision history. A frozen packet can produce only Observed, Confounded, Missing, or Contradicted alignments and one atomic ControlFirst experiment. Follow-up controls are presented as later work, never bundled into the first discriminating experiment.
 
 ## Layout contract for the report
 
 ```text
 Header: run identity, state, exported timestamp
-Decision sequence: observed change → unseparated confound → decisive next control
+Decision sequence: observed data fact → dominant confound or missing observable → decisive next control
 Decision brief: verdict, blocking reason, ControlFirst experiment, two outcomes
-Measurement trace: deterministic CSV evidence and compact metrics
-Claim boundary: Established, Inferred, and Unresolved explanation
-Audit Trail: source/page and CSV row locators plus the complete four-state ledger
+Measurement boundary: artifact profile, confirmed bindings, deterministic evidence IDs
+Claim boundary: signatures with Observed, Confounded, Missing, or Contradicted alignment states
+Audit Trail: source provenance, excerpt hashes, artifact hashes, and decision history
 ```
 
 On narrow screens, the traces and state matrix stack vertically; the ControlFirst panel remains visually last and full width. No state is hidden behind hover-only UI.

@@ -5,7 +5,7 @@
 Desktop walkthrough of the shipped `four_wire_contact_control` fixture:
 
 1. Start screen
-2. Load the MCP-ready resistance demo DRAFT
+2. Load the MCP-ready R(T) contact-control DRAFT
 3. Copy the Codex brief and record source roles
 4. Freeze the evidence packet in the UI
 5. Complete the MCP sequence and return to the exported report
@@ -42,7 +42,7 @@ After loading the demo and after freezing the packet, the browser remained at it
 
 The first viewport communicates the product promise well, but the included demo action is below the visible trace. A first-time viewer may need to hunt or scroll before finding the fastest path.
 
-**Fix:** a concise primary `Open the resistance-sweep demo` action now sits beneath the hero explanation, with its fixture scope shown beside it. The detailed action remains lower on the page.
+**Fix:** a concise primary `Open the R(T) contact-control fixture` action now sits beneath the hero explanation, with its fixture scope shown beside it. The detailed action remains lower on the page.
 
 **Verification:** `/tmp/groundloop-flow-qa/06-start-hero-cta.jpg` shows the CTA in the first viewport. Its bounds were `top: 554.6`, `bottom: 602.6` within a `797px` viewport, and activating it opened the setup screen.
 
