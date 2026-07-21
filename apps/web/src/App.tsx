@@ -211,6 +211,8 @@ type ArtifactBinding = {
   artifact_id: string;
   x_column_id: string;
   y_column_ids: string[];
+  group_column_id?: string | null;
+  acquisition_order_column_id?: string | null;
 };
 type GenericProfile = {
   artifact_id: string;
@@ -320,6 +322,37 @@ function artifactBindingsFrom(detail: Detail): ArtifactBinding[] {
   return detail.draft?.artifact_bindings ?? detail.packet?.artifact_bindings ?? (fallback ? [{ artifact_id: "artifact-001", x_column_id: fallback.x_column_id, y_column_ids: fallback.y_column_ids }] : []);
 }
 
+function bindingRole(columnId: string, binding?: ArtifactBinding) {
+  if (!binding) return "";
+  if (binding.x_column_id === columnId) return " · X";
+  if (binding.y_column_ids.includes(columnId)) return " · Y";
+  if (binding.group_column_id === columnId) return " · GROUP";
+  if (binding.acquisition_order_column_id === columnId) return " · ORDER";
+  return "";
+}
+
+function genericBriefContext(detail: Detail) {
+  if (detail.run.workflow !== "generic_v2") return [];
+  const artifacts = artifactsFrom(detail);
+  const profiles = genericProfilesFrom(detail);
+  const bindings = artifactBindingsFrom(detail);
+  if (profiles.length === 0) return [];
+  const artifactById = new Map(artifacts.map((artifact) => [artifact.artifact_id, artifact]));
+  const bindingById = new Map(bindings.map((binding) => [binding.artifact_id, binding]));
+  return [
+    "",
+    "Measurement artifact and column IDs. Use these exact IDs; do not guess artifact names:",
+    ...profiles.flatMap((profile) => {
+      const artifact = artifactById.get(profile.artifact_id);
+      const binding = bindingById.get(profile.artifact_id);
+      return [
+        `- ${profile.artifact_id}${artifact ? ` (${artifact.filename}; ${profile.row_count} rows × ${profile.column_count} columns)` : ""}`,
+        ...profile.columns.map((column) => `  - ${column.column_id}: ${column.name} [${column.inferred_type}]${bindingRole(column.column_id, binding)}`),
+      ];
+    }),
+  ];
+}
+
 function briefFor(detail: Detail) {
   const claim = detail.convergence?.claim ?? detail.draft?.claim?.claim ?? detail.packet?.claim.claim ?? "";
   const method = detail.convergence?.measurement_method ?? detail.packet?.methods ?? detail.draft?.methods ?? "";
@@ -347,6 +380,7 @@ function briefFor(detail: Detail) {
     `Claim: ${claim}`,
     `Method: ${method}`,
     `Run state: ${detail.run.state}`,
+    ...genericBriefContext(detail),
     "",
     "Use the GroundLoop MCP and follow the state-gated steps below:",
     ...steps,

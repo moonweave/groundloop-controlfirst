@@ -1354,8 +1354,8 @@ class RunStore:
         target = sorted(alignments, key=lambda item: priority[item.status])[0]
         name = by_id[target.signature_id].name
         if target.status == "Confounded":
-            detail = target.alternative_explanation or "a named alternative explanation"
-            return f"{name} is confounded: {detail} remains inseparable within the frozen method and data boundary."
+            detail = (target.alternative_explanation or "a named alternative explanation").strip().rstrip(".;: ")
+            return f"{name} is confounded: {detail}. The alternative remains inseparable within the frozen method and data boundary."
         if target.status == "Missing":
             return f"{name} is missing: {target.missing_reason or 'the required condition was not recorded'} within the frozen boundary."
         if target.status == "Contradicted":

@@ -197,6 +197,44 @@ def test_grouped_extrema_materializes_forward_reverse_peaks_without_codex_arithm
     assert evidence["artifact_id"] == "artifact-001"
 
 
+def test_hysteresis_window_materializes_matched_group_separation(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    detail = store.create_generic_run(
+        ClaimInput(claim="A cyclic trace contains a hysteretic electrical response."),
+        "A cyclic trace contains potential, current, and forward/reverse sweep direction. Only one scan rate was measured.",
+        CYCLIC_TRACE,
+        [_source()],
+        filename="cyclic-trace.csv",
+    )
+    run_id = detail["run"]["run_id"]
+    store.record_measurement_modality(
+        run_id,
+        MeasurementModalityProposal(
+            candidate="generic_cyclic_trace",
+            confidence="high",
+            reasons=["Potential/current columns and a direction group describe a cyclic trace."],
+            authority="codex",
+        ),
+    )
+    store.set_dataset_binding(
+        run_id,
+        DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], group_column_id="col-003", confirmed_at="2026-07-21T00:00:00+00:00"),
+        "generic_cyclic_trace",
+    )
+    store.record_source_reviews(
+        run_id,
+        [SourceAdjudication(source_id="src-spectrum-limit", verdict="direct", role="method_limit", rationale="The supplied source limits mechanism assignment from a single trace.")],
+    )
+    store.prepare_packet(run_id)
+    store.inspect_sources(run_id, [{"expected_observation": "A single trace does not establish the mechanism.", "condition": "Only the bounded excerpt is frozen.", "falsifier": "The excerpt does not state the limitation.", "evidence_ref_ids": ["src-spectrum-limit:evidence"]}])
+    store.analyze_dataset(run_id)
+    evidence = store.materialize_data_evidence(run_id, "hysteresis_window", ["col-003", "col-001", "col-002"], 2, 14)
+    assert evidence["operation"] == "hysteresis_window"
+    assert evidence["result"]["matched_x_count"] == 4
+    assert evidence["result"]["max_window"] == {"x": 0.15, "window": 8.7, "values": {"forward": 4.8, "reverse": -3.9}}
+    assert "maximum group separation of 8.7" in evidence["fact_text"]
+
+
 def test_multi_artifact_generic_run_freezes_materializes_and_exports_cross_artifact_evidence(tmp_path: Path) -> None:
     store = RunStore(tmp_path / "runs")
     detail = store.create_generic_run(

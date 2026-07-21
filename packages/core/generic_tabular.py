@@ -193,7 +193,11 @@ def materialize_evidence(
     operation: str, selected_columns: list[str], row_start: int, row_end: int, parameters: dict[str, Any] | None = None,
 ) -> DataEvidence:
     """Execute a small allowlisted operation; never evaluate user expressions or code."""
-    allowed = {"raw_slice", "column_summary", "endpoint_delta", "argmax", "argmin", "range_extrema", "linear_fit", "correlation", "monotonicity", "group_summary", "grouped_extrema"}
+    allowed = {
+        "raw_slice", "column_summary", "endpoint_delta", "argmax", "argmin", "range_extrema",
+        "linear_fit", "correlation", "monotonicity", "group_summary", "grouped_extrema",
+        "hysteresis_window",
+    }
     if operation not in allowed:
         raise ValueError("unsupported deterministic evidence operation")
     parameters = parameters or {}
@@ -268,6 +272,53 @@ def materialize_evidence(
         result = {"pearson_r": coefficient, "point_count": len(pairs)}
         fact = f"Pearson correlation between {names[0]} and {names[1]} is {coefficient:.6g} across {len(pairs)} finite pairs."
         hint = "scatter"
+    elif operation == "hysteresis_window":
+        if len(selected_columns) < 3:
+            raise ValueError("hysteresis_window requires group, X, and numeric Y columns")
+        group_name, x_name, y_name = names[:3]
+        by_x: dict[float, dict[str, float]] = {}
+        seen_group_x: set[tuple[str, float]] = set()
+        groups: set[str] = set()
+        for row in rows:
+            group = row[group_name]
+            x_value = _number(row[x_name])
+            y_value = _number(row[y_name])
+            if group is None or x_value is None or y_value is None:
+                continue
+            key = (group, x_value)
+            if key in seen_group_x:
+                raise ValueError("hysteresis_window requires at most one Y value per group and X value")
+            seen_group_x.add(key)
+            groups.add(group)
+            by_x.setdefault(x_value, {})[group] = y_value
+        if len(groups) < 2:
+            raise ValueError("hysteresis_window requires at least two non-empty groups")
+        windows = []
+        for x_value, values in sorted(by_x.items()):
+            if len(values) < 2:
+                continue
+            y_values = list(values.values())
+            windows.append({
+                "x": x_value,
+                "window": max(y_values) - min(y_values),
+                "values": {group: values[group] for group in sorted(values)},
+            })
+        if not windows:
+            raise ValueError("hysteresis_window requires at least one shared X value across groups")
+        max_window = max(windows, key=lambda item: abs(float(item["window"])))
+        result = {
+            "groups": sorted(groups),
+            "matched_x_count": len(windows),
+            "max_window": max_window,
+            "windows": windows[:20],
+        }
+        group_label = "/".join(sorted(groups))
+        fact = (
+            f"Matched {group_label} groups show a maximum group separation of "
+            f"{max_window['window']:.6g} {y_name} at {x_name}={max_window['x']:.6g} "
+            f"across {len(windows)} shared X value(s)."
+        )
+        hint = "line"
     elif operation == "grouped_extrema":
         if len(selected_columns) < 3:
             raise ValueError("grouped_extrema requires group, X, and numeric Y columns")
