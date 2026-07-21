@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import uuid
 from pathlib import Path
@@ -1355,6 +1356,8 @@ class RunStore:
         name = by_id[target.signature_id].name
         if target.status == "Confounded":
             detail = (target.alternative_explanation or "a named alternative explanation").strip().rstrip(".;: ")
+            if re.search(r"\bremain(?:s|ed|ing)?\b|\binseparable\b|\bcompatible\b", detail, flags=re.IGNORECASE):
+                return f"{name} is confounded: {detail}."
             return f"{name} is confounded: {detail}. The alternative remains inseparable within the frozen method and data boundary."
         if target.status == "Missing":
             return f"{name} is missing: {target.missing_reason or 'the required condition was not recorded'} within the frozen boundary."

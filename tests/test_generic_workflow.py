@@ -760,6 +760,9 @@ def test_actuator_hysteresis_scenario_exports_confounded_mechanism_without_domai
         filename="actuator-hysteresis.csv",
     )
     run_id = detail["run"]["run_id"]
+    actuator_profile = store.inspect_dataset_profile(run_id)["profile"]
+    assert actuator_profile["columns"][0]["unit"]["value"] == "V/um"
+    assert actuator_profile["columns"][1]["unit"]["value"] == "deg"
     store.record_measurement_modality(
         run_id,
         MeasurementModalityProposal(
@@ -806,11 +809,12 @@ def test_actuator_hysteresis_scenario_exports_confounded_mechanism_without_domai
         run_id,
         [
             AlignmentAdjudication(signature_id="signature-field-linked-bending", status="Observed", rationale="GroundLoop materialized a field-linked bending separation across matched sweep directions.", evidence_ref_ids=[window["evidence_id"]]),
-            AlignmentAdjudication(signature_id="signature-intrinsic-attribution", status="Confounded", rationale="The field-linked response is real within the artifact, but the method has no thermal, humidity, dummy-substrate, current, fixture, or imaging-lag controls.", evidence_ref_ids=[window["evidence_id"], "method-evidence-frozen", "src-actuator-limit:evidence"], alternative_explanation="Electrostatic charging, Joule heating, ionic or humidity drift, viscoelastic relaxation, fixture motion, or imaging lag can produce similar bending."),
+            AlignmentAdjudication(signature_id="signature-intrinsic-attribution", status="Confounded", rationale="The field-linked response is real within the artifact, but the method has no thermal, humidity, dummy-substrate, current, fixture, or imaging-lag controls.", evidence_ref_ids=[window["evidence_id"], "method-evidence-frozen", "src-actuator-limit:evidence"], alternative_explanation="Electrostatic charging, Joule heating, ionic or humidity drift, viscoelastic relaxation, fixture motion, or imaging lag remains compatible with similar bending."),
             AlignmentAdjudication(signature_id="signature-reversibility", status="Missing", rationale="The artifact contains repeated motion, but no matched repeatability/control artifact that bounds residual displacement against drift and relaxation.", evidence_ref_ids=[endpoint["evidence_id"], "src-actuator-limit:evidence"], missing_reason="required_condition_not_recorded"),
         ],
     )
     assert convergence["dominant_gap"].startswith("Intrinsic attribution is confounded")
+    assert "The alternative remains inseparable" not in convergence["dominant_gap"]
     store.record_control_contract(
         run_id,
         ControlProposal(

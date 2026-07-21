@@ -31,8 +31,9 @@ from .models import (
 _KNOWN_UNITS = {
     "a", "ma", "ua", "na", "v", "mv", "kv", "ohm", "kohm", "mohm", "s", "ms", "us",
     "min", "h", "hz", "khz", "mhz", "nm", "um", "mm", "cm", "m", "k", "c", "degc",
-    "counts", "au", "arb", "pa", "w", "mw", "j", "ev", "mev", "rh", "%", "percent",
+    "deg", "counts", "au", "arb", "pa", "w", "mw", "j", "ev", "mev", "rh", "%", "percent",
 }
+_UNIT_DISPLAY = {"v": "V", "mv": "mV", "kv": "kV"}
 
 
 def _canonical(value: Any) -> str:
@@ -86,9 +87,13 @@ def _number(value: str | None) -> float | None:
 
 def _candidate_unit(name: str) -> UnitDescriptor:
     tokens = [token.lower() for token in re.findall(r"[A-Za-z%]+", name)]
+    for left, marker, right in zip(tokens, tokens[1:], tokens[2:]):
+        if marker == "per" and left in _KNOWN_UNITS and right in _KNOWN_UNITS:
+            candidate = f"{_UNIT_DISPLAY.get(left, left)}/{_UNIT_DISPLAY.get(right, right)}"
+            return UnitDescriptor(value=candidate, source="header", status="candidate")
     candidate = next((token for token in reversed(tokens) if token in _KNOWN_UNITS), None)
     return UnitDescriptor(
-        value=candidate,
+        value=_UNIT_DISPLAY.get(candidate, candidate) if candidate else None,
         source="header" if candidate else "none",
         status="candidate" if candidate else "unknown",
     )
