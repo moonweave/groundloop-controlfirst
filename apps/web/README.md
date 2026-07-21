@@ -20,7 +20,7 @@ pnpm exec tsc -b --noEmit
 pnpm build
 ```
 
-Set `VITE_GROUNDLOOP_API` only if the local API is not running at the default `http://127.0.0.1:8765`.
+Set `VITE_GROUNDLOOP_API_URL` only if the local API is not running at the default `http://127.0.0.1:8000`.
 
 ## Product boundary
 
