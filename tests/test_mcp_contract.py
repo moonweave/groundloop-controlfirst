@@ -3,6 +3,7 @@ from pathlib import Path
 
 from services.mcp_server import main as mcp_main
 from packages.core.models import DatasetBinding, LiteratureCandidate, MeasurementModalityProposal, SourceAdjudication, SourceInput
+from packages.core.models import ProvisionalReasoning
 from packages.core.store import RunStore
 
 
@@ -98,6 +99,56 @@ def test_generic_mcp_profile_binding_and_materialized_fact(tmp_path: Path, monke
     evidence = mcp_main.materialize_data_evidence(run_id, "argmax", ["col-001", "col-002"], 2, 4)
     assert evidence["ok"] is True
     assert evidence["result"]["result"]["x"] == 620
+
+
+def test_generic_mcp_records_source_free_provisional_reasoning(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(mcp_main, "store", RunStore(tmp_path / "runs"))
+    created = mcp_main.create_generic_run(
+        claim="The measured response supports the proposed mechanism under the stated conditions.",
+        methods="The CSV is an ambiguous bounded table from a device experiment; literature and control artifacts are not available yet.",
+        dataset_csv="x,y,value1,value2\n0,0.10,12,a\n1,0.18,14,b\n",
+        sources=[],
+    )
+    assert created["ok"] is True
+    run_id = created["result"]["run"]["run_id"]
+
+    recorded = mcp_main.record_provisional_reasoning(
+        run_id,
+        ProvisionalReasoning.model_validate(
+            {
+                "signatures": [
+                    {
+                        "id": "signature-response",
+                        "name": "Response",
+                        "requirement": "The mechanism should predict a measurable response.",
+                        "expected_observation": "The selected observable follows the predicted response.",
+                        "falsifying_outcome": "The selected observable does not follow the predicted response.",
+                    }
+                ],
+                "alignments": [
+                    {
+                        "signature_id": "signature-response",
+                        "provisional_status": "unknown",
+                        "rationale": "No binding, source review, or materialized evidence exists yet.",
+                        "needed_evidence": "Researcher binding and a materialized data fact.",
+                    }
+                ],
+                "proposed_data_operations": [
+                    {
+                        "operation": "custom_shape_discriminator",
+                        "selected_columns": ["col-001", "col-002"],
+                        "rationale": "This is a Codex-proposed analysis need, not a GroundLoop evidence fact.",
+                        "reason": "unsupported_operation",
+                    }
+                ],
+            }
+        ),
+    )
+
+    assert recorded["ok"] is True
+    provisional = recorded["result"]["draft"]["provisional_reasoning"]
+    assert provisional["evidence_status"] == "not_evidence"
+    assert provisional["reasoning"]["proposed_data_operations"][0]["materialization_status"] == "not_materialized"
 
 
 def test_generic_mcp_multi_artifact_contract(tmp_path: Path, monkeypatch) -> None:

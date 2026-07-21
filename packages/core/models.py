@@ -163,6 +163,58 @@ class AlignmentAdjudication(StrictModel):
     ] | None = None
 
 
+class ProvisionalDataOperation(StrictModel):
+    """A Codex-proposed analysis that is not materialized evidence."""
+
+    operation: str = Field(min_length=1, max_length=80, pattern=r"^[a-zA-Z0-9_.-]+$")
+    selected_columns: list[str] = Field(default_factory=list, max_length=8)
+    rationale: str = Field(min_length=1, max_length=500)
+    materialization_status: Literal["not_materialized"] = "not_materialized"
+    reason: Literal[
+        "unsupported_operation", "needs_external_model", "awaiting_researcher_binding",
+        "needs_additional_artifact", "exploratory_only",
+    ] = "exploratory_only"
+
+
+class ProvisionalAlignment(StrictModel):
+    """Exploratory signature relation that cannot be cited as final evidence."""
+
+    signature_id: str = Field(pattern=r"^signature-[a-zA-Z0-9_-]+$")
+    provisional_status: Literal[
+        "consistent_signal", "possibly_confounded", "missing_from_boundary",
+        "conflicting_signal", "unknown",
+    ]
+    rationale: str = Field(min_length=1, max_length=1000)
+    needed_evidence: str = Field(min_length=1, max_length=500)
+    evidence_ref_ids: list[str] = Field(default_factory=list, max_length=20)
+
+
+class ProvisionalControl(StrictModel):
+    """A draft control idea saved before the evidence packet is frozen."""
+
+    confound: str = Field(min_length=1, max_length=500)
+    experiment: str = Field(min_length=1, max_length=1000)
+    rationale: str = Field(min_length=1, max_length=500)
+
+
+class ProvisionalReasoning(StrictModel):
+    """Draft-only Codex reasoning. This is never decision evidence."""
+
+    signatures: list[RequiredSignature] = Field(min_length=1, max_length=5)
+    alignments: list[ProvisionalAlignment] = Field(default_factory=list, max_length=5)
+    proposed_data_operations: list[ProvisionalDataOperation] = Field(default_factory=list, max_length=10)
+    controls: list[ProvisionalControl] = Field(default_factory=list, max_length=5)
+    authority: Literal["codex"] = "codex"
+    recorded_at: str | None = Field(default=None, max_length=80)
+
+    @model_validator(mode="after")
+    def validate_signature_references(self) -> "ProvisionalReasoning":
+        signature_ids = {signature.id for signature in self.signatures}
+        if any(alignment.signature_id not in signature_ids for alignment in self.alignments):
+            raise ValueError("provisional alignments must reference saved provisional signatures")
+        return self
+
+
 class Outcome(StrictModel):
     if_: str = Field(alias="if", min_length=1, max_length=400)
     then: str = Field(min_length=1, max_length=500)

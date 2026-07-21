@@ -11,6 +11,7 @@ from packages.core.models import (
     DatasetBinding,
     LiteratureCandidate,
     MeasurementModalityProposal,
+    ProvisionalReasoning,
     RequiredSignature,
     SourceAdjudication,
     SourceInput,
@@ -878,6 +879,133 @@ def test_ambiguous_columns_require_binding_but_do_not_block_generic_workflow(tmp
         ],
     )
     assert convergence["dominant_gap"].startswith("Column meaning is missing")
+
+
+def test_source_free_draft_can_record_provisional_reasoning_without_evidence(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    detail = store.create_generic_run(
+        ClaimInput(claim="The measured response supports the proposed mechanism under the stated conditions."),
+        "The method records an ambiguous bounded table from a materials device experiment; scientific column meanings and literature boundary are not available yet.",
+        AMBIGUOUS_COLUMNS,
+        [],
+        filename="unknown-response.csv",
+    )
+    run_id = detail["run"]["run_id"]
+
+    store.record_measurement_modality(
+        run_id,
+        MeasurementModalityProposal(
+            candidate="unknown",
+            confidence="low",
+            reasons=["Codex cannot assign a measurement family from the claim, method, and arbitrary headers alone."],
+            alternatives=["generic_sweep"],
+            authority="codex",
+        ),
+    )
+    result = store.record_provisional_reasoning(
+        run_id,
+        ProvisionalReasoning.model_validate(
+            {
+                "signatures": [
+                    {
+                        "id": "signature-response-shape",
+                        "name": "Response shape",
+                        "requirement": "The mechanism should predict a specific response shape.",
+                        "expected_observation": "The measured response follows that predicted shape.",
+                        "falsifying_outcome": "The measured response does not follow the predicted shape.",
+                    },
+                    {
+                        "id": "signature-mechanism-specificity",
+                        "name": "Mechanism specificity",
+                        "requirement": "The response must be separable from method or artifact alternatives.",
+                        "expected_observation": "A discriminator separates the proposed mechanism from alternatives.",
+                        "falsifying_outcome": "Alternatives remain compatible with the table.",
+                    },
+                ],
+                "alignments": [
+                    {
+                        "signature_id": "signature-response-shape",
+                        "provisional_status": "unknown",
+                        "rationale": "Column meanings are not confirmed and no materialized data fact exists yet.",
+                        "needed_evidence": "Researcher binding plus a GroundLoop materialized data fact.",
+                    },
+                    {
+                        "signature_id": "signature-mechanism-specificity",
+                        "provisional_status": "missing_from_boundary",
+                        "rationale": "No source or control artifact is in the Run boundary.",
+                        "needed_evidence": "Bounded literature candidates and at least one discriminating control artifact or method limit.",
+                    },
+                ],
+                "proposed_data_operations": [
+                    {
+                        "operation": "custom_mechanism_shape_test",
+                        "selected_columns": ["col-001", "col-002"],
+                        "rationale": "Codex would like a domain-specific shape test, but GroundLoop has not materialized that operation.",
+                        "reason": "unsupported_operation",
+                    }
+                ],
+                "controls": [
+                    {
+                        "confound": "Column meanings and mechanism alternatives are not bounded.",
+                        "experiment": "Ask the researcher to bind x/y roles, then add a matched control artifact chosen from literature and method limits.",
+                        "rationale": "The current table is exploratory only.",
+                    }
+                ],
+            }
+        ),
+    )
+
+    provisional = result["draft"]["provisional_reasoning"]
+    assert provisional["status"] == "current"
+    assert provisional["evidence_status"] == "not_evidence"
+    assert provisional["reasoning"]["proposed_data_operations"][0]["materialization_status"] == "not_materialized"
+    assert store.get_summary(run_id).state.value == "DRAFT"
+    with pytest.raises(ValueError, match="reviewed direct source"):
+        store.prepare_packet(run_id)
+    with pytest.raises(ValueError, match="DATA_ANALYZED"):
+        store.record_signatures(run_id, provisional["reasoning"]["signatures"])
+
+
+def test_provisional_reasoning_stales_when_draft_boundary_changes(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    detail = store.create_generic_run(
+        ClaimInput(claim="A transient response indicates the proposed mechanism."),
+        "The table records time and current after a perturbation; literature and controls are not imported yet.",
+        TRANSIENT_RELAXATION,
+        [],
+        filename="transient-relaxation.csv",
+    )
+    run_id = detail["run"]["run_id"]
+    store.record_provisional_reasoning(
+        run_id,
+        ProvisionalReasoning.model_validate(
+            {
+                "signatures": [
+                    {
+                        "id": "signature-relaxation",
+                        "name": "Relaxation",
+                        "requirement": "Current should relax after the perturbation.",
+                        "expected_observation": "Current decreases over time.",
+                        "falsifying_outcome": "Current does not decrease.",
+                    }
+                ],
+                "proposed_data_operations": [
+                    {
+                        "operation": "stretched_exponential_fit",
+                        "selected_columns": ["col-001", "col-002"],
+                        "rationale": "Codex wants this model fit for exploration, but it is not a GroundLoop evidence operation.",
+                        "reason": "unsupported_operation",
+                    }
+                ],
+            }
+        ),
+    )
+
+    store.update_claim(run_id, ClaimInput(claim="A changed transient claim requires fresh reasoning."))
+
+    provisional = store.get_detail(run_id)["draft"]["provisional_reasoning"]
+    assert provisional["status"] == "stale"
+    assert provisional["evidence_status"] == "not_evidence"
 
 
 def test_unsupported_modality_degrades_to_missing_without_fake_observed_evidence(tmp_path: Path) -> None:

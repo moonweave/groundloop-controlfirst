@@ -26,6 +26,7 @@ from .models import (
     LiteratureCandidate,
     MechanismVerdict,
     MeasurementModalityProposal,
+    ProvisionalReasoning,
     Report,
     RequiredSignature,
     RunState,
@@ -145,9 +146,15 @@ class RunStore:
         if primary:
             self._write(run / "inputs" / "dataset-binding.json", primary.model_dump(mode="json"))
 
+    def _stale_provisional_reasoning(self, run: Path) -> None:
+        if (run / "analysis" / "provisional-reasoning.json").is_file():
+            self._write(run / "analysis" / "provisional-reasoning-invalidated.json", {"invalid": True, "at": now_iso()})
+            self._record_event(run, action="provisional_reasoning_staled", state=RunState.DRAFT, summary="Draft inputs changed; Codex provisional reasoning is stale and must be refreshed before use.")
+
     def _invalidate_generic_measurement_context(self, run: Path, summary: str) -> None:
         self._write(run / "inputs" / "binding-invalidated.json", {"invalid": True, "at": now_iso()})
         self._write(run / "inputs" / "codex-routing-invalidated.json", {"invalid": True, "at": now_iso()})
+        self._stale_provisional_reasoning(run)
         self._record_event(run, action="generic_binding_invalidated", state=RunState.DRAFT, summary=summary)
         self._record_event(run, action="codex_measurement_routing_invalidated", state=RunState.DRAFT, summary="Claim, method, source boundary, or artifact changed; Codex should review measurement routing again, but generic reasoning remains available.")
 
@@ -383,6 +390,28 @@ class RunStore:
             summary=f"Codex recorded '{recorded.candidate}' as a proposed measurement modality; researcher confirmation is still required.",
         )
         return self.inspect_dataset_profile(run_id)
+
+    def record_provisional_reasoning(
+        self, run_id: str, reasoning: ProvisionalReasoning
+    ) -> dict[str, Any]:
+        """Save Codex's draft reasoning without converting it into evidence."""
+
+        run = self._require_draft(run_id)
+        if self.get_summary(run_id).workflow != "generic_v2":
+            raise ValueError("provisional reasoning is available through the generic v2 workflow")
+        recorded = reasoning.model_copy(update={"recorded_at": now_iso()})
+        self._write(
+            run / "analysis" / "provisional-reasoning.json",
+            recorded.model_dump(mode="json"),
+        )
+        self._write(run / "analysis" / "provisional-reasoning-invalidated.json", {"invalid": False, "at": now_iso()})
+        self._record_event(
+            run,
+            action="provisional_reasoning_recorded",
+            state=RunState.DRAFT,
+            summary="Codex saved exploratory signatures, analysis needs, and control ideas without creating decision evidence.",
+        )
+        return self.get_detail(run_id)
 
     def set_dataset_binding(self, run_id: str, binding: DatasetBinding, recipe: str = "generic") -> dict[str, Any]:
         return self.set_artifact_binding(run_id, binding, recipe)
@@ -695,6 +724,7 @@ class RunStore:
                 self._invalidate_generic_measurement_context(run, "Method or artifact changed; researcher confirmation of binding and recipe is required again.")
             else:
                 self._write(run / "inputs" / "codex-routing-invalidated.json", {"invalid": True, "at": now_iso()})
+                self._stale_provisional_reasoning(run)
                 self._record_event(run, action="codex_measurement_routing_invalidated", state=RunState.DRAFT, summary="Claim, method, source boundary, or artifact changed; Codex should review measurement routing again, but generic reasoning remains available.")
         self._write(run / "inputs" / "modality-proposal.json", infer_modality(next_profile, next_methods))
         return self.get_detail(run_id)
@@ -1476,6 +1506,9 @@ class RunStore:
                 "artifact_bindings": [item.model_dump(mode="json") for item in bindings] if not binding_invalidated else [],
                 "recipe": self._read(run / "inputs" / "recipe.json") if (run / "inputs" / "recipe.json").is_file() else None,
             }
+            provisional = self._provisional_reasoning_payload(run)
+            if provisional:
+                result["draft"]["provisional_reasoning"] = provisional
         else:
             result["packet"] = self._packet(run)
         result["convergence"] = self._generic_convergence_map(summary.run_id, run).model_dump(mode="json", by_alias=True)
@@ -1528,7 +1561,23 @@ class RunStore:
                 "direct_source_ids": review.get("direct_source_ids", []) if review else [],
                 "adjudications": review.get("adjudications", []) if review else [],
             }
+        provisional = self._provisional_reasoning_payload(run)
+        if provisional:
+            result["provisional_reasoning"] = provisional
         return result
+
+    def _provisional_reasoning_payload(self, run: Path) -> dict[str, Any] | None:
+        path = run / "analysis" / "provisional-reasoning.json"
+        if not path.is_file():
+            return None
+        payload = self._read(path)
+        stale_path = run / "analysis" / "provisional-reasoning-invalidated.json"
+        stale = stale_path.is_file() and self._read(stale_path).get("invalid", False)
+        return {
+            "status": "stale" if stale else "current",
+            "evidence_status": "not_evidence",
+            "reasoning": payload,
+        }
 
     def _require_retrieval_adjudication(self, run: Path) -> None:
         """Block candidate retrieval from becoming a decision boundary by accident."""

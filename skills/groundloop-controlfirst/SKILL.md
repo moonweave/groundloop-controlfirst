@@ -44,8 +44,10 @@ local filesystem path. Return the created Run ID and tell the user to open that
 Run in the UI if they want the visual Map.
 
 If Codex-first has no supplied sources, do not invent or silently retrieve
-evidence. Ask the researcher to add bounded source candidates in the UI or
-provide them before attempting source review and freeze.
+evidence. You may call `record_provisional_reasoning` to save draft-only
+signatures, unsupported analysis needs, or control ideas, but treat that record
+as non-evidence. Ask the researcher to add bounded source candidates in the UI
+or provide them before attempting source review and freeze.
 
 ### Scientific entry rule
 
@@ -83,6 +85,9 @@ these files into the electrical-transport path.
 4. Read the imported candidates and call
    `record_measurement_modality` with `authority="codex"`; this is a proposal,
    not scientific proof, a conclusion gate, or a capability-pack activation.
+   If sources, binding, or materialized evidence are not ready yet, call
+   `record_provisional_reasoning` only for exploratory notes. It must never be
+   cited as support for `Observed` or `Contradicted`.
 5. The researcher must confirm `set_artifact_binding` for every artifact with
    returned column IDs and either an optional measurement capability pack or
    `generic` before the packet can freeze. Capability packs guide deterministic
@@ -220,6 +225,8 @@ The expected conservative result for the fixture is
   source candidates.
 - If a partial `update_run` fails, re-read the Run and verify that no supplied
   field was partially saved.
+- If `record_provisional_reasoning` exists on a Draft, treat it as a task list
+  for evidence collection, not as an alignment record or source review.
 - Never describe the local audit trail as tamper-proof. It is a chronological
   local record.
 

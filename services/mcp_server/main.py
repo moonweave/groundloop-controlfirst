@@ -13,6 +13,7 @@ from packages.core.models import (
     DatasetBinding,
     LiteratureCandidate,
     MeasurementModalityProposal,
+    ProvisionalReasoning,
     Finding,
     RequiredSignature,
     SourceAdjudication,
@@ -104,6 +105,11 @@ def propose_measurement_modality(run_id: str) -> dict[str, Any]:
 @mcp.tool(description=f"Record Codex's proposed measurement modality after reasoning over the claim, method context, bounded CSV profile, and supplied literature. Set authority='codex'. This records a reviewable proposal only: it cannot confirm columns, constrain signatures, or activate a scientific conclusion. {GUIDANCE}")
 def record_measurement_modality(run_id: str, proposal: MeasurementModalityProposal) -> dict[str, Any]:
     return _result(lambda: store.record_measurement_modality(run_id, proposal))
+
+
+@mcp.tool(description=f"Persist Codex's draft-only scientific reasoning before source review or evidence freeze. Use this for exploratory signatures, needed controls, or unsupported desired analyses. The saved record is explicitly not evidence and cannot support Observed or Contradicted alignments. {GUIDANCE}")
+def record_provisional_reasoning(run_id: str, reasoning: ProvisionalReasoning) -> dict[str, Any]:
+    return _result(lambda: store.record_provisional_reasoning(run_id, reasoning))
 
 
 @mcp.tool(description=f"Persist a researcher-confirmed v2 column binding and optional measurement capability pack. Use only column IDs returned by inspect_dataset_profile. Capability packs guide deterministic operations only; generic remains always available and Codex reasoning is not limited by pack choice. {GUIDANCE}")
