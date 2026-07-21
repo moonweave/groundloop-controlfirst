@@ -32,6 +32,7 @@ def test_fixture_can_be_prepared_through_local_api(tmp_path: Path) -> None:
 
     created = client.post("/api/runs", json={"fixture_name": "four_wire_contact_control"})
     assert created.status_code == 200
+    assert created.json()["state"] == "DRAFT"
     run_id = created.json()["run_id"]
 
     prepared = client.post(f"/api/runs/{run_id}/prepare")

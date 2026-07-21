@@ -69,6 +69,20 @@ codex mcp get groundloop
 
 If `groundloop-mcp` is not found, run `uv sync --extra test` again from the repository root and verify `uv run groundloop-mcp` starts without an import error.
 
+## Install the GroundLoop Codex skill
+
+The MCP server exposes the tools; the skill teaches Codex the staged workflow and
+the human freeze gate. Install it once from the repository root:
+
+```bash
+mkdir -p "$HOME/.codex/skills"
+ln -sfn "$(pwd)/skills/groundloop-controlfirst" "$HOME/.codex/skills/groundloop-controlfirst"
+```
+
+Then start a Codex session with GPT-5.6 and say `Run the GroundLoop workflow for
+this Run`. The skill uses the registered `groundloop` MCP server; it does not
+upload the CSV or call an OpenAI API directly.
+
 ## Judge fast path
 
 GroundLoop is a local developer tool, so judges can exercise the complete
@@ -76,12 +90,15 @@ fixture without rebuilding an experiment or supplying an API key:
 
 1. Complete **Install** and **Register the MCP server with Codex** above.
 2. Run `./scripts/demo.sh`, then open `http://127.0.0.1:5173`.
-3. Choose **Open the resistance sweep**. It loads a clearly labelled synthetic
-   two-wire resistance-temperature record and opens the Convergence Map.
-4. Choose **Copy Codex brief** and paste it into a Codex session with the
-   registered `groundloop` MCP server. The UI remains the Run's source of truth.
-5. Let Codex review sources by role, analyze the dataset, record signatures and
-   four-state alignments, commit one four-wire control contract, and export the
+3. Choose **Open the resistance sweep**. It creates a clearly labelled synthetic
+   two-wire resistance-temperature **DRAFT** with supplied source candidates.
+4. Choose **Copy Codex brief** and paste it into a GPT-5.6 Codex session with the
+   registered `groundloop` MCP server, or invoke the installed
+   `groundloop-controlfirst` skill.
+5. Let Codex review every source by role. When it stops at the freeze gate, return
+   to the UI and choose **FREEZE EVIDENCE**, then tell Codex to continue.
+6. Codex inspects the frozen packet, analyzes the dataset, records signatures and
+   four-state alignments, commits one four-wire control contract, and exports the
    report. The UI updates the same Map automatically.
 
 The expected conclusion is deliberately conservative: a falling two-wire
@@ -123,8 +140,8 @@ GroundLoop was built as a collaboration boundary, not as a hidden chatbot.
    Use the GroundLoop MCP for run <run-id>. This evidence packet is already frozen after semantic source review. Call inspect_sources, then analyze_dataset, record_signatures, record_alignments, record_control_contract, and export_report. Treat only the supplied excerpts, locators, and saved role rationales as source support; lexical ordering is never source support. Use only Observed, Confounded, Missing, or Contradicted alignments. Propose one atomic four-wire control, then export the report.
    ```
 
-8. The researcher explicitly freezes the reviewed packet in GroundLoop. Codex then calls `inspect_sources`, `analyze_dataset`, `record_signatures`, `record_alignments`, `record_control_contract`, and `export_report` in order; every saved transition appears in the run's decision history.
-9. After either brief is copied, the UI checks the local run automatically; **Refresh** remains available if needed. The report opens with `MECHANISM NOT ESTABLISHED` until the proposed discriminating control is actually run.
+8. The researcher explicitly freezes the reviewed packet in GroundLoop. Codex then calls `create_evidence_packet`, `inspect_sources`, `analyze_dataset`, `record_signatures`, `record_alignments`, `record_control_contract`, and `export_report` in order; every saved transition appears in the run's decision history.
+9. After the brief is copied, the UI checks the local run automatically; **Refresh** remains available if needed. The report opens with `MECHANISM NOT ESTABLISHED` until the proposed discriminating control is actually run.
 
 The fixture deliberately tests an overreach: a two-wire temperature-dependent resistance trace does not by itself demonstrate a bulk conductivity transition. The required control is the same sweep in four-terminal mode while holding the sample, current, mounting, and temperature program fixed.
 

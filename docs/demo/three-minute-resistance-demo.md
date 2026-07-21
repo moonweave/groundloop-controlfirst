@@ -17,19 +17,20 @@ The video must prove one product outcome:
 1. Start the local app with `./scripts/demo.sh`.
 2. Confirm `codex mcp get groundloop` reports the local `groundloop-mcp` command.
 3. Run `uv run pytest -q` and `cd apps/web && pnpm lint && pnpm exec tsc -b --noEmit && pnpm build`.
-4. Use a clean browser window at the GroundLoop start screen. Keep browser zoom at 100%.
-5. Start a new Codex chat that can call the registered GroundLoop MCP server.
+4. Install the repo's `skills/groundloop-controlfirst` skill or have the
+   copied brief ready for a Codex chat that can call the registered MCP server.
+5. Use a clean browser window at the GroundLoop start screen. Keep browser zoom at 100%.
 
 ## Shot list and narration
 
 | Time | Screen | Voiceover |
 | --- | --- | --- |
 | 0:00–0:14 | GroundLoop start screen with the included resistance trace visible | “A temperature-dependent resistance curve can look like a mechanism result. But a two-wire measurement also includes contacts and leads. What does this evidence actually support?” |
-| 0:14–0:30 | Click **Open the resistance-sweep demo**; show the claim, the fixed CSV, and two measurement-principle sources | “This is a reproducible synthetic transport fixture. The claim is that the falling resistance proves a bulk conductivity transition. GroundLoop keeps that claim separate from the record and from the measurement boundary.” |
-| 0:30–0:48 | Source section, especially **Measurement principle** labels | “These sources do not prove anything about the sample. They establish one limitation: two-wire resistance can include contact and lead contributions.” |
-| 0:48–1:02 | Click **Freeze reviewed packet**; show the frozen packet / handoff state | “I freeze the exact claim, methods, sources, and CSV. From this point, the reasoning cannot silently change the evidence.” |
-| 1:02–1:42 | Codex screen: show `inspect_sources`, then `analyze_dataset`; show structured returned evidence IDs | “Codex with GPT-5.6 is the reasoning layer. GroundLoop is the local evidence boundary: it supplies deterministic data facts and requires every conclusion to cite the frozen record.” |
-| 1:42–2:08 | Codex screen: show validated findings and `propose_control` | “GPT-5.6 can infer a bulk interpretation, but GroundLoop requires it to state uncertainty and an alternative explanation. The unresolved question is the contact contribution.” |
+| 0:14–0:30 | Click **Open the resistance-sweep demo**; show the claim, the fixed CSV, and two measurement-principle sources in the DRAFT Run | “This is a reproducible synthetic transport fixture. The claim is that the falling resistance proves a bulk conductivity transition. GroundLoop keeps that claim separate from the record and from the measurement boundary.” |
+| 0:30–0:48 | Codex screen: show `record_source_reviews` with `theory_basis` and `method_limit` roles | “These sources do not prove anything about the sample. They establish one limitation: two-wire resistance can include contact and lead contributions.” |
+| 0:48–1:02 | Return to GroundLoop and click **FREEZE EVIDENCE** | “The researcher freezes the exact claim, methods, sources, and CSV. From this point, the reasoning cannot silently change the evidence.” |
+| 1:02–1:42 | Codex screen: show `create_evidence_packet`, `inspect_sources`, `analyze_dataset`, and structured evidence IDs | “Codex with GPT-5.6 is the reasoning layer. GroundLoop is the local evidence boundary: it supplies deterministic data facts and requires every conclusion to cite the frozen record.” |
+| 1:42–2:08 | Codex screen: show `record_signatures`, `record_alignments`, and `record_control_contract` | “GPT-5.6 can infer a bulk interpretation, but GroundLoop requires explicit signature states, an alternative explanation, and one atomic control. The unresolved question is the contact contribution.” |
 | 2:08–2:36 | Return to GroundLoop report and foreground the verdict | “The result is not a fluent yes. It is `MECHANISM NOT ESTABLISHED`: the curve is observed, but the mechanism is still blocked.” |
 | 2:36–2:52 | ControlFirst card and its two outcomes | “The smallest decisive next experiment is the same sweep in four-wire mode. If the trend remains, support for a bulk contribution increases. If it weakens, contacts or leads become more plausible.” |
 | 2:52–3:00 | Verdict and provenance / closing logo | “GroundLoop does not automate scientific certainty. It makes the next experiment that can earn it explicit.” |

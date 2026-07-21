@@ -4,10 +4,10 @@
 
 - Public repository: `https://github.com/moonweave/groundloop-controlfirst`
 - License: MIT (`LICENSE`)
-- Python suite: `31 passed`
+- Python suite: `51 passed`
 - Web quality gate: lint, TypeScript check, and production build pass
 - Secret scan: no leaks found
-- Judge path: `README.md` → Install → register MCP → `./scripts/demo.sh` → labelled resistance fixture → Codex MCP workflow → exported report
+- Judge path: `README.md` → Install → register MCP → install `groundloop-controlfirst` skill → `./scripts/demo.sh` → DRAFT resistance fixture → source-role review → UI freeze → Codex MCP workflow → exported report
 
 ## Devpost fields
 

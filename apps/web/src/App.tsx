@@ -250,19 +250,34 @@ function datasetFrom(detail: Detail): Dataset | undefined {
 function briefFor(detail: Detail) {
   const claim = detail.convergence?.claim ?? detail.draft?.claim?.claim ?? detail.packet?.claim.claim ?? "";
   const method = detail.convergence?.measurement_method ?? detail.packet?.methods ?? detail.draft?.methods ?? "";
+  const steps = detail.run.state === "DRAFT"
+    ? [
+        "1. While this Run is DRAFT, call record_source_reviews once for every supplied source. Assign direct sources one role: theory_basis, method_limit, or discriminating_control.",
+        "2. Stop and ask the researcher to click FREEZE EVIDENCE in GroundLoop. Do not call create_evidence_packet before the researcher confirms the freeze.",
+      ]
+    : detail.run.state === "PACKET_READY"
+      ? [
+          "1. The researcher has frozen the packet. Call create_evidence_packet, inspect_sources, and analyze_dataset in that order.",
+          "2. Then call record_signatures, record_alignments, record_control_contract, and export_report in that order.",
+        ]
+      : detail.run.state === "EXPORTED"
+        ? ["1. This Run is already EXPORTED. Read it with get_run and do not replay the workflow; create a new DRAFT Run for a fresh analysis."]
+        : [
+            "1. Continue from the current Run state with the next valid GroundLoop MCP operation.",
+            "2. Finish with record_signatures, record_alignments, record_control_contract, and export_report.",
+          ];
   return [
     `Analyze GroundLoop Run ${detail.run.run_id}.`,
     "",
     "This Run is the bounded evidence source of truth. Read only the saved claim, method, dataset facts, and source excerpts.",
     `Claim: ${claim}`,
     `Method: ${method}`,
+    `Run state: ${detail.run.state}`,
     "",
-    "Use the GroundLoop MCP in this order:",
-    "1. inspect_sources or record_source_reviews with one explicit role per direct source: theory_basis, method_limit, discriminating_control.",
-    "2. create_evidence_packet only after the researcher freezes the packet in the GroundLoop UI.",
-    "3. inspect_sources, analyze_dataset, record_signatures, record_alignments, then record_control_contract.",
-    "4. Record only Observed, Confounded, Missing, or Contradicted alignments. Name the alternative explanation for Confounded and keep the control atomic.",
-    "5. Export the report when the Convergence Map is complete.",
+    "Use the GroundLoop MCP and follow the state-gated steps below:",
+    ...steps,
+    "Record only Observed, Confounded, Missing, or Contradicted alignments. Name the alternative explanation for Confounded and keep the control atomic.",
+    "Export the report when the Convergence Map is complete.",
   ].join("\n");
 }
 
@@ -350,12 +365,12 @@ function App() {
     setBusy(true);
     setError("");
     try {
-      const created = await api<Report>("/api/runs", {
+      const created = await api<Run>("/api/runs", {
         method: "POST",
-        body: JSON.stringify({ fixture_name: "four_wire_contact_control_guided" }),
+        body: JSON.stringify({ fixture_name: "four_wire_contact_control" }),
       });
       await openRun(created.run_id);
-      setNotice("Guided resistance sweep opened. The synthetic dataset is labelled in the audit trail.");
+      setNotice("MCP-ready resistance sweep opened. Review sources, freeze the packet, then paste the Codex brief.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to open the guided Run.");
       setBusy(false);

@@ -5,9 +5,10 @@
 Desktop walkthrough of the shipped `four_wire_contact_control` fixture:
 
 1. Start screen
-2. Load resistance demo
-3. Freeze evidence packet and copy the Codex brief
-4. Complete the MCP sequence and return to the validated report
+2. Load the MCP-ready resistance demo DRAFT
+3. Copy the Codex brief and record source roles
+4. Freeze the evidence packet in the UI
+5. Complete the MCP sequence and return to the exported report
 
 ## Captured evidence
 
@@ -20,11 +21,12 @@ Desktop walkthrough of the shipped `four_wire_contact_control` fixture:
 
 The end-to-end loop passed on run `0cfe3f23-17bb-48b9-8d90-f2de770dd371`:
 
-- the fixture loaded through the UI;
+- the MCP-ready fixture loaded through the UI as a DRAFT;
+- Codex recorded source roles before the freeze gate;
 - the packet froze with sources, methods, and CSV preserved;
 - the copied brief triggered the UI polling path;
-- source inspection, deterministic data analysis, four-state findings, one ControlFirst proposal, and export all succeeded;
-- the UI returned to `Validated report` automatically and displayed the saved report notice.
+- source inspection, deterministic data analysis, required signatures, four-state alignments, one ControlFirst contract, and export all succeeded;
+- the UI returned to the exported report automatically and displayed the saved report notice.
 
 ## Findings
 
