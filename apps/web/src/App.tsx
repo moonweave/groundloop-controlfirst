@@ -623,8 +623,8 @@ function Landing({
         <div className="hero-copy">
           <p className="kicker">RESEARCH CONVERGENCE WORKSPACE · BOUNDED TABULAR MEASUREMENTS</p>
           <h1>Make the claim<br /><em>decidable.</em></h1>
-          <p className="hero-deck">Start with a claim and a CSV. Codex reviews the sources, you freeze the evidence, and GroundLoop shows what the data can support next.</p>
-          <div className="hero-rail"><span>THEORY</span><i /><span>MEASUREMENT</span><i /><span>CONTROL</span></div>
+          <p className="hero-deck">Start with a claim and a CSV. GPT-5.6 via Codex MCP reviews the sources, you freeze the evidence, and GroundLoop shows what the data can support next.</p>
+          <div className="hero-rail"><span>GPT-5.6 / CODEX MCP</span><i /><span>THEORY</span><i /><span>MEASUREMENT</span><i /><span>CONTROL</span></div>
         </div>
         <div className="entry-panel panel-linework">
           <div className="panel-head"><div><span className="kicker">NEW RUN / 01</span><h2>Frame the claim.</h2></div><span className="panel-index">GL·01</span></div>
@@ -656,7 +656,7 @@ function Landing({
               <span>Units in names ok</span>
             </div>
           </div>
-          <div className="entry-footer"><span className="tiny-note"><LockKeyhole size={13} /> Raw file stays in the local Run boundary. Literature comes later as reviewed candidates.</span><button className="primary-button" type="button" disabled={!canCreate} title={canCreate ? "Create a local Run" : "Complete the claim, method context, and CSV first"} onClick={() => void onCreate({ claim, methods, datasetCsv, fileName })}>{busy ? "CREATING RUN…" : "CREATE GROUNDLOOP RUN"}<ArrowRight size={16} /></button></div>
+          <div className="entry-footer"><span className="tiny-note"><LockKeyhole size={13} /> GPT-5.6 reasoning runs through Codex MCP; raw files stay in the local Run boundary.</span><button className="primary-button" type="button" disabled={!canCreate} title={canCreate ? "Create a local Run" : "Complete the claim, method context, and CSV first"} onClick={() => void onCreate({ claim, methods, datasetCsv, fileName })}>{busy ? "CREATING RUN…" : "CREATE GROUNDLOOP RUN"}<ArrowRight size={16} /></button></div>
         </div>
       </section>
       <section className="landing-bottom">
