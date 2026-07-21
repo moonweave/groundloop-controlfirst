@@ -286,6 +286,11 @@ a { color: inherit; }
 .timeline-row p { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .audit-footnote { display: flex; align-items: center; gap: 8px; margin-top: 22px; color: var(--muted); font-family: var(--mono); font-size: 9px; letter-spacing: .04em; }
 .brief-panel { margin-top: 24px; border: 1px solid var(--line); background: rgba(255,255,255,.66); padding: 15px; }
+.brief-guide { display: grid; grid-template-columns: minmax(0, .92fr) minmax(280px, 1.08fr); gap: 18px; border-bottom: 1px solid var(--line); padding: 14px 0 15px; }
+.brief-guide strong, .brief-guide span { display: block; }
+.brief-guide strong { color: var(--charcoal); font-size: 14px; }
+.brief-guide span { margin-top: 5px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.brief-guide ol { display: grid; gap: 6px; margin: 0; padding-left: 18px; color: #536167; font-size: 12px; line-height: 1.45; }
 .brief-panel textarea { display: block; width: 100%; min-height: 180px; margin-top: 13px; border: 1px solid var(--line); background: var(--paper); color: var(--charcoal); padding: 13px; font: 11px/1.5 var(--mono); resize: vertical; }
 .workspace-empty { display: grid; place-items: center; min-height: 60vh; color: var(--muted); text-align: center; }
 .workspace-empty h1 { margin: 18px 0 7px; color: var(--charcoal); font-size: 30px; letter-spacing: -.06em; }
@@ -383,6 +388,7 @@ a { color: inherit; }
   .alignment-note { grid-column: 3; grid-row: 1; align-self: end; justify-self: start; margin: 0; text-align: left; }
   .evidence-layout, .inspector-columns { grid-template-columns: 1fr; gap: 12px; }
   .binding-panel, .binding-controls { grid-template-columns: 1fr; }
+  .brief-guide { grid-template-columns: 1fr; }
   .measurement-boundary { border-top: 1px solid var(--line); border-left: 0; padding: 18px 0 0; }
   .signature-inspector { gap: 19px; padding: 20px 16px; }
   .ledger-head { display: none; }
