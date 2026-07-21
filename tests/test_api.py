@@ -41,6 +41,32 @@ def test_fixture_can_be_prepared_through_local_api(tmp_path: Path) -> None:
     assert body["packet"]["dataset"]["row_count"] == 8
 
 
+def test_api_update_run_is_atomic_when_dataset_validation_fails(tmp_path: Path) -> None:
+    client = TestClient(create_app(RunStore(tmp_path / "runs")))
+    original_claim = "Does this resistance sweep establish a bulk transition?"
+    created = client.post(
+        "/api/runs",
+        json={
+            "claim": original_claim,
+            "methods": "Two-terminal resistance was recorded during a temperature sweep.",
+            "dataset_csv": "temperature_c,two_wire_resistance_ohm\n20,120\n30,100\n",
+        },
+    )
+    run_id = created.json()["run"]["run_id"]
+
+    failed = client.patch(
+        f"/api/runs/{run_id}",
+        json={
+            "claim": "A replacement claim that must not be partially saved.",
+            "dataset_csv": "not,a supported measurement",
+        },
+    )
+
+    assert failed.status_code == 422
+    detail = client.get(f"/api/runs/{run_id}").json()
+    assert detail["draft"]["claim"]["claim"] == original_claim
+
+
 def test_guided_fixture_opens_an_exported_report_without_mcp(tmp_path: Path) -> None:
     client = TestClient(create_app(RunStore(tmp_path / "runs")))
 

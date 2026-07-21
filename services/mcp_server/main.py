@@ -69,15 +69,13 @@ def update_run(
     sources: list[SourceInput] | None = None,
 ) -> dict[str, Any]:
     def operation() -> dict[str, Any]:
-        if claim is not None:
-            store.update_claim(run_id, ClaimInput(claim=claim))
-        if methods is not None:
-            store.update_methods(run_id, methods)
-        if dataset_csv is not None:
-            store.update_dataset(run_id, dataset_csv.encode("utf-8"))
-        if sources is not None:
-            store.update_sources(run_id, sources)
-        return store.get_detail(run_id)
+        return store.update_editable_inputs(
+            run_id,
+            ClaimInput(claim=claim) if claim is not None else None,
+            methods,
+            dataset_csv.encode("utf-8") if dataset_csv is not None else None,
+            sources,
+        )
 
     return _result(operation)
 

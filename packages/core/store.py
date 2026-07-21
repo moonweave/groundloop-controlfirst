@@ -83,11 +83,7 @@ class RunStore:
         """Create a complete draft from Codex without requiring the web UI."""
 
         summary = self.create_run()
-        self.update_claim(summary.run_id, claim)
-        self.update_methods(summary.run_id, methods)
-        self.update_dataset(summary.run_id, dataset)
-        if sources:
-            self.update_sources(summary.run_id, sources)
+        self.update_editable_inputs(summary.run_id, claim, methods, dataset, sources or None)
         return self.get_detail(summary.run_id)
 
     def list_runs(self) -> list[RunSummary]:
@@ -245,6 +241,35 @@ class RunStore:
             raise ValueError("at least one source is required")
         self._write(run / "inputs" / "sources.json", [source.model_dump(mode="json") for source in sources])
         return self.get_summary(run_id)
+
+    def update_editable_inputs(
+        self,
+        run_id: str,
+        claim: ClaimInput | None = None,
+        methods: str | None = None,
+        dataset: bytes | None = None,
+        sources: list[SourceInput] | None = None,
+    ) -> dict[str, Any]:
+        """Validate and persist a partial draft update without partial writes."""
+
+        run = self._require_draft(run_id)
+        if methods is not None and (len(methods.strip()) < 20 or len(methods) > 20_000):
+            raise ValueError("methods must contain 20–20,000 characters")
+        if dataset is not None:
+            parse_dataset(dataset)
+        if sources is not None and not sources:
+            raise ValueError("at least one source is required")
+
+        if claim is not None:
+            self._write(run / "inputs" / "claim.json", claim.model_dump(mode="json"))
+        if methods is not None:
+            (run / "inputs" / "methods.md").write_text(methods, encoding="utf-8")
+        if dataset is not None:
+            (run / "inputs" / "dataset.csv").write_bytes(dataset)
+            self._write(run / "inputs" / "dataset-provenance.json", {"kind": "USER_MEASUREMENT"})
+        if sources is not None:
+            self._write(run / "inputs" / "sources.json", [source.model_dump(mode="json") for source in sources])
+        return self.get_detail(run_id)
 
     def save_research_setup(self, run_id: str, claim: ClaimInput, sources: list[SourceInput]) -> RunSummary:
         """Persist unreviewed retrieval candidates while the run is still editable."""

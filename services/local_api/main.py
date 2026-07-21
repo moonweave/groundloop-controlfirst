@@ -156,15 +156,13 @@ def create_app(store: RunStore | None = None, discovery: ReferenceDiscovery | No
     @app.patch("/api/runs/{run_id}")
     def update_run(run_id: str, request: UpdateRunRequest) -> dict[str, Any]:
         try:
-            if request.claim is not None:
-                app.state.store.update_claim(run_id, ClaimInput(claim=request.claim))
-            if request.methods is not None:
-                app.state.store.update_methods(run_id, request.methods)
-            if request.dataset_csv is not None:
-                app.state.store.update_dataset(run_id, request.dataset_csv.encode("utf-8"))
-            if request.sources is not None:
-                app.state.store.update_sources(run_id, request.sources)
-            return app.state.store.get_detail(run_id)
+            return app.state.store.update_editable_inputs(
+                run_id,
+                ClaimInput(claim=request.claim) if request.claim is not None else None,
+                request.methods,
+                request.dataset_csv.encode("utf-8") if request.dataset_csv is not None else None,
+                request.sources,
+            )
         except Exception as exc:
             raise _error(exc) from exc
 
