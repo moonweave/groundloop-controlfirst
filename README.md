@@ -88,14 +88,14 @@ upload the CSV or call an OpenAI API directly.
 
 The generic v2 path is the canonical research workflow:
 
-1. Create a Run with a claim, method context, one bounded UTF-8 CSV, and optional source candidates.
+1. Create a Run with a claim or hypothesis, method context, one bounded UTF-8 CSV, and optional source candidates. Treat the claim as a proposition to test, not as an established fact.
 2. Add additional bounded CSV artifacts when the decision requires a separate control, spectrum, time series, lifetime, geometry, or grouped-comparison table. GroundLoop stores each artifact separately and never merges rows.
 3. GroundLoop profiles every artifact's columns, candidate units, missingness, sample rows, and SHA-256. Its header signal is advisory only. Codex reads the claim, method context, artifact profiles, and supplied literature, then records a reviewable modality proposal.
-3. Codex may search literature outside GroundLoop and import bounded candidates with provider, publication status, query, rationale, locator, and excerpt hash. GroundLoop never fetches the supplied URL or DOI; imported candidates remain unreviewed.
-4. The researcher confirms one X column, up to three Y columns, optional grouping/order, units, and an optional measurement capability pack for every artifact. `generic` is always valid.
-5. Codex semantically reviews every candidate by role. The researcher freezes the exact claim, method, artifact IDs, hashes, profiles, bindings, capability pack metadata, selected excerpts, and source provenance.
-6. Codex requests allowlisted operations such as `argmax`, `endpoint_delta`, `linear_fit`, `correlation`, or `monotonicity` against explicit artifact IDs. GroundLoop returns the only valid data-evidence IDs and calculated facts.
-7. Codex records signatures, alignments, one control, and an export. `Observed` and `Contradicted` require GroundLoop-materialized data evidence. `Confounded` also requires a named alternative plus method/source limit evidence.
+4. Codex may search literature outside GroundLoop and import bounded candidates with provider, publication status, query, rationale, locator, and excerpt hash. Literature informs theory basis, method limits, and controls; it does not prove that this Run's data observed the mechanism. GroundLoop never fetches the supplied URL or DOI; imported candidates remain unreviewed.
+5. The researcher confirms one X column, up to three Y columns, optional grouping/order, units, and an optional measurement capability pack for every artifact. `generic` is always valid.
+6. Codex semantically reviews every candidate by role. The researcher freezes the exact claim, method, artifact IDs, hashes, profiles, bindings, capability pack metadata, selected excerpts, and source provenance.
+7. Codex requests allowlisted operations such as `argmax`, `endpoint_delta`, `grouped_extrema`, `linear_fit`, `correlation`, or `monotonicity` against explicit artifact IDs. GroundLoop returns the only valid data-evidence IDs and calculated facts.
+8. Codex records signatures, alignments, one control, and an export. `Observed` and `Contradicted` require GroundLoop-materialized data evidence. `Confounded` also requires a named alternative plus method/source limit evidence.
 
 The included `generic_spectrum` fixture demonstrates this path with
 `wavelength_nm,intensity_counts`. It establishes feature presence through an

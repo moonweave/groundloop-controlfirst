@@ -20,6 +20,7 @@ from packages.core.store import RunStore
 
 SPECTRUM = b"wavelength_nm,intensity_counts\n580,12\n600,28\n620,91\n640,45\n660,18\n"
 TEMPERATURE_CONTROL = b"temperature_c,peak_intensity_counts\n20,41\n40,58\n60,79\n80,104\n"
+CYCLIC_TRACE = b"potential_v,current_ua,direction\n-0.40,0.2,forward\n-0.20,0.4,forward\n0.00,1.2,forward\n0.15,4.8,forward\n0.30,2.0,forward\n0.45,0.8,forward\n0.60,0.3,forward\n0.45,-0.4,reverse\n0.30,-1.6,reverse\n0.15,-3.9,reverse\n0.00,-1.0,reverse\n-0.15,-0.3,reverse\n-0.30,-0.1,reverse\n"
 
 
 def _codex_spectrum_proposal() -> MeasurementModalityProposal:
@@ -157,6 +158,43 @@ def test_generic_spectrum_run_materializes_evidence_and_exports(tmp_path: Path) 
     assert "Excerpt SHA-256" in markdown
     assert "two-wire" not in markdown.lower()
     assert "resistance" not in markdown.lower()
+
+
+def test_grouped_extrema_materializes_forward_reverse_peaks_without_codex_arithmetic(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    detail = store.create_generic_run(
+        ClaimInput(claim="A single cyclic trace establishes a reversible surface-confined mechanism."),
+        "A three-electrode cyclic trace contains potential, current, and forward/reverse direction. Only one scan rate was measured.",
+        CYCLIC_TRACE,
+        [_source()],
+        filename="cyclic-trace.csv",
+    )
+    run_id = detail["run"]["run_id"]
+    store.record_measurement_modality(
+        run_id,
+        MeasurementModalityProposal(
+            candidate="generic_cyclic_trace",
+            confidence="high",
+            reasons=["Potential/current columns and a direction group describe a cyclic trace."],
+            authority="codex",
+        ),
+    )
+    store.set_dataset_binding(
+        run_id,
+        DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], group_column_id="col-003", confirmed_at="2026-07-21T00:00:00+00:00"),
+        "generic_cyclic_trace",
+    )
+    store.record_source_reviews(
+        run_id,
+        [SourceAdjudication(source_id="src-spectrum-limit", verdict="direct", role="method_limit", rationale="The supplied source limits mechanism assignment from a single trace.")],
+    )
+    store.prepare_packet(run_id)
+    store.inspect_sources(run_id, [{"expected_observation": "A single trace does not establish the mechanism.", "condition": "Only the bounded excerpt is frozen.", "falsifier": "The excerpt does not state the limitation.", "evidence_ref_ids": ["src-spectrum-limit:evidence"]}])
+    store.analyze_dataset(run_id)
+    evidence = store.materialize_data_evidence(run_id, "grouped_extrema", ["col-003", "col-001", "col-002"], 2, 14)
+    assert evidence["result"]["forward"]["max"] == {"x": 0.15, "y": 4.8}
+    assert evidence["result"]["reverse"]["min"] == {"x": 0.15, "y": -3.9}
+    assert evidence["artifact_id"] == "artifact-001"
 
 
 def test_multi_artifact_generic_run_freezes_materializes_and_exports_cross_artifact_evidence(tmp_path: Path) -> None:

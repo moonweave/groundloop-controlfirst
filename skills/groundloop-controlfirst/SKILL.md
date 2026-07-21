@@ -47,6 +47,24 @@ If Codex-first has no supplied sources, do not invent or silently retrieve
 evidence. Ask the researcher to add bounded source candidates in the UI or
 provide them before attempting source review and freeze.
 
+### Scientific entry rule
+
+The researcher may enter with a hypothesis, a proposed measurement, or both.
+Treat the hypothesis as a claim to test, never as an established fact. Codex
+should decompose it into falsifiable signatures and plausible alternatives,
+then search literature for three separate purposes: theory basis, method limits,
+and discriminating controls. Literature can justify what would count as a
+signature or explain why a method is non-identifying; it cannot prove that this
+Run's data observed the mechanism. Only GroundLoop-materialized data evidence
+can support an `Observed` or `Contradicted` alignment. The practical entry path
+is therefore:
+
+`hypothesis → proposed data/artifacts → Codex literature search → source-role review → researcher freeze → deterministic data facts → alignment → control`
+
+If literature is consulted before the data is proposed, preserve the same
+boundary: it informs the prediction and control design, but never becomes a
+substitute for the Run's measured evidence.
+
 ### Generic tabular v2
 
 Use `create_generic_run` for arbitrary-header CSV measurements such as spectra,
@@ -132,7 +150,7 @@ Use the returned evidence references and deterministic dataset facts. Do not
 replace them with web results, memory, or a newly generated CSV interpretation.
 
 For a generic v2 Run, immediately request the minimum allowlisted data facts
-needed for the signatures (`argmax`, `endpoint_delta`, `monotonicity`,
+needed for the signatures (`argmax`, `endpoint_delta`, `grouped_extrema`, `monotonicity`,
 `correlation`, etc.). GroundLoop returns exact selectors and stable IDs.
 
 ### 5. Record the Convergence Map

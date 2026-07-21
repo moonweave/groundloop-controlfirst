@@ -193,7 +193,7 @@ def materialize_evidence(
     operation: str, selected_columns: list[str], row_start: int, row_end: int, parameters: dict[str, Any] | None = None,
 ) -> DataEvidence:
     """Execute a small allowlisted operation; never evaluate user expressions or code."""
-    allowed = {"raw_slice", "column_summary", "endpoint_delta", "argmax", "argmin", "range_extrema", "linear_fit", "correlation", "monotonicity", "group_summary"}
+    allowed = {"raw_slice", "column_summary", "endpoint_delta", "argmax", "argmin", "range_extrema", "linear_fit", "correlation", "monotonicity", "group_summary", "grouped_extrema"}
     if operation not in allowed:
         raise ValueError("unsupported deterministic evidence operation")
     parameters = parameters or {}
@@ -268,6 +268,30 @@ def materialize_evidence(
         result = {"pearson_r": coefficient, "point_count": len(pairs)}
         fact = f"Pearson correlation between {names[0]} and {names[1]} is {coefficient:.6g} across {len(pairs)} finite pairs."
         hint = "scatter"
+    elif operation == "grouped_extrema":
+        if len(selected_columns) < 3:
+            raise ValueError("grouped_extrema requires group, X, and numeric Y columns")
+        group_name, x_name, y_name = names[:3]
+        groups: dict[str, list[tuple[float, float]]] = {}
+        for row in rows:
+            group = row[group_name]
+            x_value = _number(row[x_name])
+            y_value = _number(row[y_name])
+            if group is not None and x_value is not None and y_value is not None:
+                groups.setdefault(group, []).append((x_value, y_value))
+        if not groups:
+            raise ValueError("grouped_extrema requires non-empty groups and finite X/Y values")
+        result = {}
+        for group, pairs in sorted(groups.items()):
+            low = min(pairs, key=lambda pair: pair[1])
+            high = max(pairs, key=lambda pair: pair[1])
+            result[group] = {
+                "count": len(pairs),
+                "min": {"x": low[0], "y": low[1]},
+                "max": {"x": high[0], "y": high[1]},
+            }
+        fact = f"Grouped extrema of {y_name} versus {x_name} were materialized for {len(groups)} group(s): {', '.join(sorted(groups))}."
+        hint = "summary"
     else:  # group_summary
         if len(selected_columns) < 2:
             raise ValueError("group_summary requires a group and numeric value column")

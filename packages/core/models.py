@@ -352,7 +352,7 @@ class DataEvidence(StrictModel):
     row_end: int = Field(ge=2)
     operation: Literal[
         "raw_slice", "column_summary", "endpoint_delta", "argmax", "argmin", "range_extrema",
-        "linear_fit", "correlation", "monotonicity", "group_summary",
+        "linear_fit", "correlation", "monotonicity", "group_summary", "grouped_extrema",
     ]
     parameters: dict[str, Any] = Field(default_factory=dict)
     result: dict[str, Any]

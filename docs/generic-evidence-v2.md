@@ -58,6 +58,7 @@ selection. The v2 allowlist is:
 - `correlation`
 - `monotonicity`
 - `group_summary`
+- `grouped_extrema` — materialize per-group minimum and maximum Y values with their X locations; useful for repeated sweeps or matched conditions.
 
 Every operation targets one explicit artifact and produces a stable
 `data-evidence-*` ID, artifact ID, exact columns and row range, artifact hash,
