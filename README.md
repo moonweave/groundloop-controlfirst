@@ -52,6 +52,8 @@ Use one terminal from this repository root.
 
 This starts the loopback-only API and companion UI at `http://127.0.0.1:5173`; use `Ctrl-C` to stop both. The MCP server is started by the registered Codex command, not in this terminal. For separate terminal control, run `uv run groundloop-api` and `cd apps/web && pnpm dev --host 127.0.0.1`.
 
+`demo.sh` expects ports `8000` and `5173` to be free. If another GroundLoop instance is already running, stop it first; the script detects the conflict and exits with an explicit message instead of attaching to the other instance.
+
 The UI does not make a model call. It creates the Run, profiles the CSV, shows the Codex handoff, tracks source review, freezes the evidence packet, and renders the Convergence Map. Codex performs the literature search, semantic source review, signature decomposition, alignment adjudication, control proposal, and export through MCP. The optional **Check transient record** action is deterministic only, processes an uploaded Hioki SM7120 resistance-mode export in memory, and does not create a run or persist the raw file.
 
 ## Register the MCP server with Codex
