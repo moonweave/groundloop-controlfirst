@@ -258,13 +258,21 @@ function humanizeServiceError(message: string) {
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const isForm = init?.body instanceof FormData;
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      ...(isForm ? {} : { "Content-Type": "application/json" }),
-      ...(init?.headers ?? {}),
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: {
+        ...(isForm ? {} : { "Content-Type": "application/json" }),
+        ...(init?.headers ?? {}),
+      },
+    });
+  } catch (caught) {
+    if (caught instanceof TypeError) {
+      throw new Error("The local GroundLoop UI is disconnected. Reopen the local UI and try again; this Run was not changed.", { cause: caught });
+    }
+    throw caught;
+  }
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as
       | { detail?: { message?: string } }
@@ -730,7 +738,11 @@ function MapScreen({ detail, onNotice, onFreeze, onRefresh }: { detail: Detail; 
   const control = map?.control;
   const toolbarCaption = detail.run.state === "DRAFT"
     ? "Confirm the column roles, review bounded sources, then freeze when the evidence boundary looks right."
-    : "Evidence is frozen. Codex can now materialize data facts, record alignments, and commit one follow-up control.";
+    : detail.run.state === "PACKET_READY"
+      ? "Evidence is frozen. Codex can now materialize data facts, record alignments, and commit one follow-up control."
+      : detail.run.state === "EXPORTED"
+        ? "Report exported. This Run is immutable; review the decision or start a new Run for another analysis."
+        : "Continue from the current Run state with the next valid Codex MCP operation.";
   const rows = dataset?.rows ?? [];
   const change = dataset?.percent_change ?? 0;
   const copyBrief = async () => {
