@@ -199,6 +199,8 @@ def test_multi_artifact_generic_run_freezes_materializes_and_exports_cross_artif
     assert {item["artifact_id"] for item in packet["artifact_bindings"]} == {"artifact-001", "artifact-control"}
     store.inspect_sources(run_id, [{"expected_observation": "assignment requires a discriminator", "condition": "source excerpt is frozen", "falsifier": "excerpt does not describe the limitation", "evidence_ref_ids": ["src-spectrum-limit:evidence"]}])
     store.analyze_dataset(run_id)
+    with pytest.raises(ValueError, match="explicit artifact_id"):
+        store.materialize_data_evidence(run_id, "argmax", ["col-001", "col-002"], 2, 6)
     spectral_evidence = store.materialize_data_evidence(run_id, "argmax", ["col-001", "col-002"], 2, 6, artifact_id="artifact-001")
     control_evidence = store.materialize_data_evidence(run_id, "endpoint_delta", ["col-001", "col-002"], 2, 5, artifact_id="artifact-control")
     assert spectral_evidence["artifact_id"] == "artifact-001"

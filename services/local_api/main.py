@@ -105,7 +105,7 @@ class MeasurementArtifactRequest(StrictRequest):
 
 
 class DataEvidenceRequest(StrictRequest):
-    artifact_id: str = Field(default="artifact-001", pattern=r"^artifact-[a-zA-Z0-9_-]+$")
+    artifact_id: str | None = Field(default=None, pattern=r"^artifact-[a-zA-Z0-9_-]+$")
     operation: str = Field(min_length=1, max_length=80)
     selected_columns: list[str] = Field(min_length=1, max_length=8)
     row_start: int = Field(ge=2)

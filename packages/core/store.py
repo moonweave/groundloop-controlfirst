@@ -1002,7 +1002,7 @@ class RunStore:
     def materialize_data_evidence(
         self, run_id: str, operation: str, selected_columns: list[str], row_start: int, row_end: int,
         parameters: dict[str, Any] | None = None,
-        artifact_id: str = "artifact-001",
+        artifact_id: str | None = None,
     ) -> dict[str, Any]:
         """Materialize a reproducible v2 data fact using the allowlisted engine."""
         run = self._run_dir(run_id)
@@ -1018,6 +1018,10 @@ class RunStore:
         by_artifact = {item.artifact_id: item for item in artifacts}
         by_profile = {item.artifact_id: item for item in profiles}
         by_binding = {item.artifact_id: item for item in bindings}
+        if artifact_id is None:
+            if len(artifacts) != 1:
+                raise ValueError("multi-artifact data evidence requires explicit artifact_id")
+            artifact_id = artifacts[0].artifact_id
         if artifact_id not in by_artifact:
             raise ValueError("materialized data evidence must target a frozen artifact ID")
         if artifact_id not in by_binding:

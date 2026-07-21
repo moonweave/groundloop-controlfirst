@@ -64,7 +64,9 @@ Every operation targets one explicit artifact and produces a stable
 binding hash, operation hash, result, and bounded fact text. Codex must cite
 that ID rather than supplying a calculated result. A single alignment may cite
 data evidence from multiple artifacts, but each cited fact remains tied to its
-own artifact ID and hash.
+own artifact ID and hash. Multi-artifact Runs reject `materialize_data_evidence`
+calls that omit `artifact_id`, because `col-001` and `col-002` are local to each
+artifact profile.
 
 ## Alignment and verdict contract
 

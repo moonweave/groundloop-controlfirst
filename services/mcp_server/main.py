@@ -252,7 +252,7 @@ def analyze_dataset(run_id: str) -> dict[str, Any]:
     return _result(operation)
 
 
-@mcp.tool(description=f"Execute one allowlisted deterministic operation over a frozen generic artifact and return a stable data evidence ID. Codex must cite this returned ID for Observed or Contradicted claims; never calculate or invent numeric evidence itself. {GUIDANCE}")
+@mcp.tool(description=f"Execute one allowlisted deterministic operation over a frozen generic artifact and return a stable data evidence ID. Multi-artifact Runs require explicit artifact_id because column IDs repeat per artifact. Codex must cite this returned ID for Observed or Contradicted claims; never calculate or invent numeric evidence itself. {GUIDANCE}")
 def materialize_data_evidence(
     run_id: str,
     operation: str,
@@ -260,7 +260,7 @@ def materialize_data_evidence(
     row_start: int,
     row_end: int,
     parameters: dict[str, Any] | None = None,
-    artifact_id: str = "artifact-001",
+    artifact_id: str | None = None,
 ) -> dict[str, Any]:
     return _result(lambda: store.materialize_data_evidence(run_id, operation, selected_columns, row_start, row_end, parameters, artifact_id))
 

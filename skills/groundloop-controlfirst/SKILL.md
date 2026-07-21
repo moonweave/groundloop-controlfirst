@@ -73,8 +73,10 @@ these files into the electrical-transport path.
    for legacy single-artifact Runs.
 6. After the human freeze and `analyze_dataset`, call
    `materialize_data_evidence` for each numerical fact you need, passing
-   `artifact_id` whenever the Run contains more than one artifact. Only cite the
-   returned `data-evidence-*` IDs; do not calculate a result in prose.
+   `artifact_id` whenever the Run contains more than one artifact. GroundLoop
+   rejects omitted artifact IDs in multi-artifact Runs because column IDs repeat
+   per artifact. Only cite the returned `data-evidence-*` IDs; do not calculate
+   a result in prose.
 
 ## Staged workflow
 

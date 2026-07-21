@@ -142,6 +142,9 @@ def test_generic_mcp_multi_artifact_contract(tmp_path: Path, monkeypatch) -> Non
     assert mcp_main.store.prepare_packet(run_id)["state"] == "PACKET_READY"
     assert mcp_main.inspect_sources(run_id)["ok"] is True
     assert mcp_main.analyze_dataset(run_id)["ok"] is True
+    omitted = mcp_main.materialize_data_evidence(run_id, "endpoint_delta", ["col-001", "col-002"], 2, 4)
+    assert omitted["ok"] is False
+    assert "explicit artifact_id" in omitted["error"]["message"]
     evidence = mcp_main.materialize_data_evidence(run_id, "endpoint_delta", ["col-001", "col-002"], 2, 4, artifact_id="artifact-control")
     assert evidence["ok"] is True
     assert evidence["result"]["artifact_id"] == "artifact-control"
