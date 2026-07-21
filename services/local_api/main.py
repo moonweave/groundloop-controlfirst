@@ -16,6 +16,7 @@ from packages.core.models import (
     ClaimInput,
     ControlProposal,
     DatasetBinding,
+    MeasurementModalityProposal,
     RequiredSignature,
     SourceAdjudication,
     SourceInput,
@@ -84,6 +85,10 @@ class GenericCreateRunRequest(StrictRequest):
 class DatasetBindingRequest(StrictRequest):
     binding: DatasetBinding
     recipe: str = Field(default="generic", min_length=1, max_length=80)
+
+
+class MeasurementModalityRequest(StrictRequest):
+    proposal: MeasurementModalityProposal
 
 
 class DataEvidenceRequest(StrictRequest):
@@ -188,6 +193,13 @@ def create_app(store: RunStore | None = None, discovery: ReferenceDiscovery | No
     def modality(run_id: str) -> dict[str, Any]:
         try:
             return app.state.store.propose_measurement_modality(run_id)
+        except Exception as exc:
+            raise _error(exc) from exc
+
+    @app.post("/api/generic/runs/{run_id}/measurement-modality")
+    def record_measurement_modality(run_id: str, request: MeasurementModalityRequest) -> dict[str, Any]:
+        try:
+            return app.state.store.record_measurement_modality(run_id, request.proposal)
         except Exception as exc:
             raise _error(exc) from exc
 

@@ -11,6 +11,7 @@ from packages.core.models import (
     ClaimInput,
     ControlProposal,
     DatasetBinding,
+    MeasurementModalityProposal,
     Finding,
     RequiredSignature,
     SourceAdjudication,
@@ -56,7 +57,7 @@ def create_run(
     )
 
 
-@mcp.tool(description=f"Create a domain-neutral GroundLoop v2 Run from one bounded UTF-8 CSV. Pass inline CSV content only. GroundLoop profiles columns but does not silently select a recipe or scientific interpretation; call propose_measurement_modality and wait for researcher-confirmed binding before freezing. {GUIDANCE}")
+@mcp.tool(description=f"Create a domain-neutral GroundLoop v2 Run from one bounded UTF-8 CSV. Pass inline CSV content only. GroundLoop profiles columns but does not select scientific meaning or a recipe. After reading the claim, method context, and supplied literature, record_measurement_modality; then wait for the researcher-confirmed binding before freezing. {GUIDANCE}")
 def create_generic_run(
     claim: str,
     methods: str,
@@ -67,17 +68,22 @@ def create_generic_run(
     return _result(lambda: store.create_generic_run(ClaimInput(claim=claim), methods, dataset_csv.encode("utf-8"), sources, filename=filename))
 
 
-@mcp.tool(description=f"Return the bounded generic CSV profile, candidate header units, modality proposal, and any confirmed binding. Profile results are not scientific evidence. {GUIDANCE}")
+@mcp.tool(description=f"Return the bounded generic CSV profile, a Codex-authored modality proposal when one is current, the advisory header heuristic separately, and any confirmed binding. Profile results are not scientific evidence. {GUIDANCE}")
 def inspect_dataset_profile(run_id: str) -> dict[str, Any]:
     return _result(lambda: store.inspect_dataset_profile(run_id))
 
 
-@mcp.tool(description=f"Recompute the advisory modality proposal from frozen method context and profile. The result always requires researcher confirmation; do not silently activate a recipe. {GUIDANCE}")
+@mcp.tool(description=f"Recompute only GroundLoop's advisory header/method heuristic. It is not scientific routing, cannot activate a recipe, and must not replace reading the supplied literature and method context. {GUIDANCE}")
 def propose_measurement_modality(run_id: str) -> dict[str, Any]:
     return _result(lambda: store.propose_measurement_modality(run_id))
 
 
-@mcp.tool(description=f"Persist a researcher-confirmed v2 column binding and optional recipe. Use only column IDs returned by inspect_dataset_profile. This is the explicit boundary between column names and scientific roles. {GUIDANCE}")
+@mcp.tool(description=f"Record Codex's proposed measurement modality after reasoning over the claim, method context, bounded CSV profile, and supplied literature. Set authority='codex'. This records a reviewable proposal only: it cannot confirm columns or activate a recipe. {GUIDANCE}")
+def record_measurement_modality(run_id: str, proposal: MeasurementModalityProposal) -> dict[str, Any]:
+    return _result(lambda: store.record_measurement_modality(run_id, proposal))
+
+
+@mcp.tool(description=f"Persist a researcher-confirmed v2 column binding and optional recipe. Use only column IDs returned by inspect_dataset_profile. A non-generic recipe must match a current Codex-authored modality proposal; generic remains always available. {GUIDANCE}")
 def set_dataset_binding(run_id: str, binding: DatasetBinding, recipe: str = "generic") -> dict[str, Any]:
     return _result(lambda: store.set_dataset_binding(run_id, binding, recipe))
 

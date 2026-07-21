@@ -89,8 +89,8 @@ upload the CSV or call an OpenAI API directly.
 The generic v2 path is the canonical research workflow:
 
 1. Create a Run with a claim, method context, one bounded UTF-8 CSV, and optional source candidates.
-2. GroundLoop profiles columns, candidate units, missingness, and sample rows. Codex may propose a modality, but it is advisory.
-3. The researcher confirms one X column, up to three Y columns, optional grouping/order, units, and a recipe (or keeps `generic`).
+2. GroundLoop profiles columns, candidate units, missingness, and sample rows. Its header signal is advisory only. Codex reads the claim, method context, and supplied literature, then records a reviewable modality proposal.
+3. The researcher confirms one X column, up to three Y columns, optional grouping/order, units, and either the matching Codex-proposed recipe or `generic`.
 4. Codex semantically reviews sources by role. The researcher freezes the exact claim, method, artifact hash, profile, binding, recipe, and selected excerpts.
 5. Codex requests an allowlisted operation such as `argmax`, `endpoint_delta`, `linear_fit`, `correlation`, or `monotonicity`. GroundLoop returns the only valid data-evidence ID and calculated fact.
 6. Codex records signatures, alignments, one control, and an export. `Observed` and `Contradicted` require GroundLoop-materialized data evidence. `Confounded` also requires a named alternative plus method/source limit evidence.

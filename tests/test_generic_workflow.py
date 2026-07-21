@@ -8,6 +8,7 @@ from packages.core.models import (
     ClaimInput,
     ControlProposal,
     DatasetBinding,
+    MeasurementModalityProposal,
     RequiredSignature,
     SourceAdjudication,
     SourceInput,
@@ -16,6 +17,16 @@ from packages.core.store import RunStore
 
 
 SPECTRUM = b"wavelength_nm,intensity_counts\n580,12\n600,28\n620,91\n640,45\n660,18\n"
+
+
+def _codex_spectrum_proposal() -> MeasurementModalityProposal:
+    return MeasurementModalityProposal(
+        candidate="generic_spectrum",
+        confidence="high",
+        reasons=["The method and bounded CSV describe steady-state wavelength-intensity spectroscopy."],
+        alternatives=["generic_sweep"],
+        authority="codex",
+    )
 
 
 def _source() -> SourceInput:
@@ -42,6 +53,8 @@ def _complete_to_analysis(store: RunStore) -> tuple[str, str]:
     run_id = detail["run"]["run_id"]
     profile = store.inspect_dataset_profile(run_id)
     assert profile["modality_proposal"]["candidate"] == "generic_spectrum"
+    assert profile["modality_proposal"]["authority"] == "groundloop_heuristic"
+    store.record_measurement_modality(run_id, _codex_spectrum_proposal())
     store.set_dataset_binding(
         run_id,
         DatasetBinding(
@@ -147,14 +160,33 @@ def test_generic_dataset_update_reprofiles_and_requires_rebinding(tmp_path: Path
         [_source()],
     )
     run_id = detail["run"]["run_id"]
+    with pytest.raises(ValueError, match="Codex-authored"):
+        store.set_dataset_binding(
+            run_id,
+            DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_at="2026-07-21T00:00:00+00:00"),
+            "generic_spectrum",
+        )
+    store.record_measurement_modality(run_id, _codex_spectrum_proposal())
     store.set_dataset_binding(
         run_id,
         DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_at="2026-07-21T00:00:00+00:00"),
+        "generic_spectrum",
     )
     store.record_source_reviews(run_id, [SourceAdjudication(source_id="src-spectrum-limit", verdict="direct", role="method_limit", rationale="The supplied excerpt limits mechanism assignment.")])
+    store.update_claim(run_id, ClaimInput(claim="A feature near 620 nm distinguishes the proposed emissive mechanism."))
+    assert store.get_detail(run_id)["draft"]["modality_proposal"]["authority"] == "groundloop_heuristic"
+    with pytest.raises(ValueError, match="stale or missing Codex"):
+        store.prepare_packet(run_id)
     updated = store.update_dataset(run_id, b"time_s,displacement_mm\n0,0\n1,1.2\n")
     assert updated["dataset_profile"]["columns"][0]["name"] == "time_s"
     assert store.get_detail(run_id)["draft"]["dataset_binding"] is None
+    assert store.get_detail(run_id)["draft"]["modality_proposal"]["authority"] == "groundloop_heuristic"
+    with pytest.raises(ValueError, match="Codex-authored"):
+        store.set_dataset_binding(
+            run_id,
+            DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_at="2026-07-21T00:00:00+00:00"),
+            "generic_spectrum",
+        )
     with pytest.raises(ValueError, match="reconfirm"):
         store.prepare_packet(run_id)
 

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from services.mcp_server import main as mcp_main
-from packages.core.models import DatasetBinding, SourceAdjudication, SourceInput
+from packages.core.models import DatasetBinding, MeasurementModalityProposal, SourceAdjudication, SourceInput
 from packages.core.store import RunStore
 
 
@@ -41,6 +41,23 @@ def test_generic_mcp_profile_binding_and_materialized_fact(tmp_path: Path, monke
     run_id = created["result"]["run"]["run_id"]
     profile = mcp_main.inspect_dataset_profile(run_id)
     assert profile["result"]["profile"]["columns"][0]["name"] == "wavelength_nm"
+    rejected = mcp_main.set_dataset_binding(
+        run_id,
+        DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_units={"col-001": "nm", "col-002": "counts"}, confirmed_at="2026-07-21T00:00:00+00:00"),
+        "generic_spectrum",
+    )
+    assert rejected["ok"] is False
+    routed = mcp_main.record_measurement_modality(
+        run_id,
+        MeasurementModalityProposal(
+            candidate="generic_spectrum",
+            confidence="high",
+            reasons=["The method and CSV are steady-state wavelength-intensity spectroscopy."],
+            authority="codex",
+        ),
+    )
+    assert routed["ok"] is True
+    assert routed["result"]["modality_proposal"]["authority"] == "codex"
     binding = mcp_main.set_dataset_binding(
         run_id,
         DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_units={"col-001": "nm", "col-002": "counts"}, confirmed_at="2026-07-21T00:00:00+00:00"),

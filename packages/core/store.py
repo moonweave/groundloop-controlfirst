@@ -133,14 +133,17 @@ class RunStore:
         run = self._run_dir(run_id)
         if self.get_summary(run_id).workflow != "generic_v2":
             raise ValueError("dataset profiles are available through the generic v2 workflow")
+        binding_invalidated = self._generic_binding_invalidated(run)
         return {
             "artifact": self._read(run / "inputs" / "dataset-artifact.json"),
             "profile": self._read(run / "inputs" / "dataset-profile.json"),
-            "modality_proposal": self._read(run / "inputs" / "modality-proposal.json"),
-            "binding": self._read(run / "inputs" / "dataset-binding.json") if (run / "inputs" / "dataset-binding.json").is_file() else None,
+            "modality_proposal": self._active_measurement_routing(run),
+            "heuristic_modality_signal": self._heuristic_modality_signal(run),
+            "binding": self._read(run / "inputs" / "dataset-binding.json") if (run / "inputs" / "dataset-binding.json").is_file() and not binding_invalidated else None,
         }
 
     def propose_measurement_modality(self, run_id: str) -> dict[str, Any]:
+        """Return a header/method heuristic only; it cannot select a recipe."""
         run = self._require_draft(run_id)
         if self.get_summary(run_id).workflow != "generic_v2":
             raise ValueError("measurement routing is available through the generic v2 workflow")
@@ -149,6 +152,30 @@ class RunStore:
         proposal = MeasurementModalityProposal.model_validate(infer_modality(profile, methods))
         self._write(run / "inputs" / "modality-proposal.json", proposal.model_dump(mode="json"))
         return proposal.model_dump(mode="json")
+
+    def record_measurement_modality(
+        self, run_id: str, proposal: MeasurementModalityProposal
+    ) -> dict[str, Any]:
+        """Persist Codex's literature- and method-aware routing proposal.
+
+        This records an auditable proposal, never a recipe activation. A researcher
+        still confirms the column binding and may always retain the generic recipe.
+        """
+        run = self._require_draft(run_id)
+        if self.get_summary(run_id).workflow != "generic_v2":
+            raise ValueError("measurement routing is available through the generic v2 workflow")
+        if proposal.authority != "codex":
+            raise ValueError("recorded measurement routing must be Codex-authored")
+        recorded = proposal.model_copy(update={"recorded_at": now_iso()})
+        self._write(run / "inputs" / "codex-modality-proposal.json", recorded.model_dump(mode="json"))
+        self._write(run / "inputs" / "codex-routing-invalidated.json", {"invalid": False, "at": now_iso()})
+        self._record_event(
+            run,
+            action="codex_measurement_modality_recorded",
+            state=RunState.DRAFT,
+            summary=f"Codex recorded '{recorded.candidate}' as a proposed measurement modality; researcher confirmation is still required.",
+        )
+        return self.inspect_dataset_profile(run_id)
 
     def set_dataset_binding(self, run_id: str, binding: DatasetBinding, recipe: str = "generic") -> dict[str, Any]:
         run = self._require_draft(run_id)
@@ -166,11 +193,37 @@ class RunStore:
             raise ValueError("confirmed units reference an unknown column")
         if recipe not in {"generic", "generic_spectrum", "generic_sweep", "generic_time_series", "generic_cyclic_trace", "grouped_comparison", "electrical_transport_rt", "actuator_dynamics"}:
             raise ValueError("unsupported measurement recipe")
+        routing = MeasurementModalityProposal.model_validate(self._active_measurement_routing(run))
+        if recipe != "generic" and (routing.authority != "codex" or routing.candidate != recipe):
+            raise ValueError("a non-generic recipe requires a current Codex-authored modality proposal that matches the researcher-confirmed recipe")
         self._write(run / "inputs" / "dataset-binding.json", binding.model_dump(mode="json"))
-        self._write(run / "inputs" / "recipe.json", {"id": recipe, "version": "1", "confirmed_by": "researcher", "confirmed_at": now_iso()})
+        self._write(run / "inputs" / "recipe.json", {
+            "id": recipe,
+            "version": "1",
+            "confirmed_by": "researcher",
+            "confirmed_at": now_iso(),
+            "routing_authority": routing.authority,
+            "routing_candidate": routing.candidate,
+        })
         self._write(run / "inputs" / "binding-invalidated.json", {"invalid": False, "at": now_iso()})
         self._record_event(run, action="dataset_binding_confirmed", state=RunState.DRAFT, summary=f"Researcher confirmed binding and '{recipe}' recipe selection.")
         return self.inspect_dataset_profile(run_id)
+
+    def _heuristic_modality_signal(self, run: Path) -> dict[str, Any]:
+        return self._read(run / "inputs" / "modality-proposal.json")
+
+    def _generic_binding_invalidated(self, run: Path) -> bool:
+        path = run / "inputs" / "binding-invalidated.json"
+        return path.is_file() and self._read(path).get("invalid", False)
+
+    def _active_measurement_routing(self, run: Path) -> dict[str, Any]:
+        """Prefer a current Codex proposal; otherwise expose only an advisory signal."""
+        codex_path = run / "inputs" / "codex-modality-proposal.json"
+        invalidated_path = run / "inputs" / "codex-routing-invalidated.json"
+        invalidated = invalidated_path.is_file() and self._read(invalidated_path).get("invalid", False)
+        if codex_path.is_file() and not invalidated:
+            return self._read(codex_path)
+        return self._heuristic_modality_signal(run)
 
     def create_codex_run(
         self,
@@ -331,6 +384,9 @@ class RunStore:
 
     def update_claim(self, run_id: str, claim: ClaimInput) -> RunSummary:
         run = self._require_draft(run_id)
+        if self.get_summary(run_id).workflow == "generic_v2":
+            self.update_editable_inputs(run_id, claim=claim)
+            return self.get_summary(run_id)
         self._write(run / "inputs" / "claim.json", claim.model_dump(mode="json"))
         return self.get_summary(run_id)
 
@@ -338,6 +394,9 @@ class RunStore:
         run = self._require_draft(run_id)
         if not sources:
             raise ValueError("at least one source is required")
+        if self.get_summary(run_id).workflow == "generic_v2":
+            self.update_editable_inputs(run_id, sources=sources)
+            return self.get_summary(run_id)
         self._write(run / "inputs" / "sources.json", [source.model_dump(mode="json") for source in sources])
         return self.get_summary(run_id)
 
@@ -404,9 +463,17 @@ class RunStore:
             self._write(run / "inputs" / "dataset-profile.json", profile.model_dump(mode="json"))
         if sources is not None:
             self._write(run / "inputs" / "sources.json", [item.model_dump(mode="json") for item in sources])
+            review_path = run / "analysis" / "source-adjudication.json"
+            if review_path.is_file():
+                review_path.unlink()
+                self._record_event(run, action="generic_source_review_invalidated", state=RunState.DRAFT, summary="Source candidates changed; Codex must review source roles again before freezing.")
+        routing_context_changed = any(item is not None for item in (claim, methods, dataset, sources))
         if dataset is not None or methods is not None:
             self._write(run / "inputs" / "binding-invalidated.json", {"invalid": True, "at": now_iso()})
             self._record_event(run, action="generic_binding_invalidated", state=RunState.DRAFT, summary="Method or artifact changed; researcher confirmation of binding and recipe is required again.")
+        if routing_context_changed:
+            self._write(run / "inputs" / "codex-routing-invalidated.json", {"invalid": True, "at": now_iso()})
+            self._record_event(run, action="codex_measurement_routing_invalidated", state=RunState.DRAFT, summary="Claim, method, source boundary, or artifact changed; Codex must review and record measurement routing again before a non-generic recipe can freeze.")
         self._write(run / "inputs" / "modality-proposal.json", infer_modality(next_profile, next_methods))
         return self.get_detail(run_id)
 
@@ -623,12 +690,15 @@ class RunStore:
         binding_path = run / "inputs" / "dataset-binding.json"
         if not binding_path.is_file():
             raise ValueError("researcher must confirm the dataset binding before freezing")
-        invalidated_path = run / "inputs" / "binding-invalidated.json"
-        if invalidated_path.is_file() and self._read(invalidated_path).get("invalid"):
+        if self._generic_binding_invalidated(run):
             raise ValueError("method or dataset changed; researcher must reconfirm the dataset binding before freezing")
         artifact = DatasetArtifact.model_validate(self._read(run / "inputs" / "dataset-artifact.json"))
         profile = DatasetProfile.model_validate(self._read(run / "inputs" / "dataset-profile.json"))
         binding = DatasetBinding.model_validate(self._read(binding_path))
+        recipe = self._read(run / "inputs" / "recipe.json")
+        routing = MeasurementModalityProposal.model_validate(self._active_measurement_routing(run))
+        if recipe["id"] != "generic" and (routing.authority != "codex" or routing.candidate != recipe["id"]):
+            raise ValueError("the selected non-generic recipe has stale or missing Codex measurement routing; record it again before freezing")
         source_review = self._selected_source_review(run, sources)
         method_ref = EvidenceRef(
             id="method-evidence-frozen", kind="method", artifact_id="method-001",
@@ -644,7 +714,9 @@ class RunStore:
             "artifact": artifact.model_dump(mode="json"),
             "dataset_profile": profile.model_dump(mode="json"),
             "dataset_binding": binding.model_dump(mode="json"),
-            "recipe": self._read(run / "inputs" / "recipe.json"),
+            "recipe": recipe,
+            "measurement_routing": routing.model_dump(mode="json"),
+            "heuristic_modality_signal": self._heuristic_modality_signal(run),
             "dataset_provenance": self._dataset_provenance(run),
             "evidence_refs": [*(item.model_dump(mode="json") for item in source_refs(sources)), method_ref.model_dump(mode="json")],
             "source_review": source_review,
@@ -1116,7 +1188,7 @@ class RunStore:
     def _get_generic_detail(self, summary: RunSummary, run: Path) -> dict[str, Any]:
         result: dict[str, Any] = {"run": summary.model_dump(mode="json"), "timeline": self._timeline(run)}
         if summary.state == RunState.DRAFT:
-            binding_invalidated = (self._read(run / "inputs" / "binding-invalidated.json").get("invalid", False) if (run / "inputs" / "binding-invalidated.json").is_file() else False)
+            binding_invalidated = self._generic_binding_invalidated(run)
             result["input_artifacts"] = sorted(path.name for path in (run / "inputs").iterdir() if path.is_file())
             result["draft"] = {
                 "claim": self._read(run / "inputs" / "claim.json"),
@@ -1124,7 +1196,8 @@ class RunStore:
                 "sources": self._read(run / "inputs" / "sources.json"),
                 "artifact": self._read(run / "inputs" / "dataset-artifact.json"),
                 "dataset_profile": self._read(run / "inputs" / "dataset-profile.json"),
-                "modality_proposal": self._read(run / "inputs" / "modality-proposal.json"),
+                "modality_proposal": self._active_measurement_routing(run),
+                "heuristic_modality_signal": self._heuristic_modality_signal(run),
                 "dataset_binding": self._read(run / "inputs" / "dataset-binding.json") if (run / "inputs" / "dataset-binding.json").is_file() and not binding_invalidated else None,
                 "recipe": self._read(run / "inputs" / "recipe.json") if (run / "inputs" / "recipe.json").is_file() else None,
             }

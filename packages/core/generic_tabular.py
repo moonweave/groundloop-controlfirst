@@ -152,15 +152,15 @@ def infer_modality(profile: DatasetProfile, methods: str) -> dict[str, Any]:
     names = " ".join(column.name.lower() for column in profile.columns)
     context = f"{names} {methods.lower()}"
     if "temperature" in context and ("resistance" in context or "ohm" in context):
-        return {"candidate": "electrical_transport_rt", "confidence": "high", "reasons": ["temperature and resistance/ohm fields are present"], "alternatives": ["generic_sweep"], "requires_confirmation": True}
+        return {"candidate": "electrical_transport_rt", "confidence": "high", "reasons": ["temperature and resistance/ohm fields are present"], "alternatives": ["generic_sweep"], "requires_confirmation": True, "authority": "groundloop_heuristic", "recorded_at": now_iso()}
     if any(token in context for token in ("wavelength", "wavenumber", "intensity", "raman", "emission", "spectrum")):
-        return {"candidate": "generic_spectrum", "confidence": "medium", "reasons": ["spectral axis or intensity-like fields are present"], "alternatives": ["generic_sweep"], "requires_confirmation": True}
+        return {"candidate": "generic_spectrum", "confidence": "medium", "reasons": ["spectral axis or intensity-like fields are present"], "alternatives": ["generic_sweep"], "requires_confirmation": True, "authority": "groundloop_heuristic", "recorded_at": now_iso()}
     if "time" in context:
         candidate = "actuator_dynamics" if any(token in context for token in ("displacement", "curvature", "force", "polarity", "humidity")) else "generic_time_series"
-        return {"candidate": candidate, "confidence": "medium", "reasons": ["a time-like field is present"], "alternatives": ["generic_sweep"], "requires_confirmation": True}
+        return {"candidate": candidate, "confidence": "medium", "reasons": ["a time-like field is present"], "alternatives": ["generic_sweep"], "requires_confirmation": True, "authority": "groundloop_heuristic", "recorded_at": now_iso()}
     if any(token in context for token in ("cycle", "forward", "reverse")):
-        return {"candidate": "generic_cyclic_trace", "confidence": "low", "reasons": ["cyclic-trace language is present"], "alternatives": ["generic_sweep"], "requires_confirmation": True}
-    return {"candidate": "generic_sweep", "confidence": "low", "reasons": ["bounded tabular numeric columns are available but modality is ambiguous"], "alternatives": ["grouped_comparison", "unknown"], "requires_confirmation": True}
+        return {"candidate": "generic_cyclic_trace", "confidence": "low", "reasons": ["cyclic-trace language is present"], "alternatives": ["generic_sweep"], "requires_confirmation": True, "authority": "groundloop_heuristic", "recorded_at": now_iso()}
+    return {"candidate": "generic_sweep", "confidence": "low", "reasons": ["bounded tabular numeric columns are available but modality is ambiguous"], "alternatives": ["grouped_comparison", "unknown"], "requires_confirmation": True, "authority": "groundloop_heuristic", "recorded_at": now_iso()}
 
 
 def _rows(raw: bytes) -> list[dict[str, str | None]]:

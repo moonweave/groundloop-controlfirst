@@ -53,10 +53,14 @@ Use `create_generic_run` for arbitrary-header CSV measurements such as spectra,
 sweeps, time series, grouped comparisons, or actuator data. Do **not** force
 these files into the electrical-transport path.
 
-1. Call `inspect_dataset_profile` and `propose_measurement_modality`.
-2. Explain that modality and header units are proposals only. The researcher
-   must confirm `set_dataset_binding` with returned column IDs and a recipe (or
-   `generic`) before the packet can freeze.
+1. Call `inspect_dataset_profile`. Treat `heuristic_modality_signal` and header
+   units as advisory only.
+2. Read the claim, method context, supplied sources, and profile. Call
+   `record_measurement_modality` with `authority="codex"`; this is a proposal,
+   not scientific proof or recipe activation.
+3. The researcher must confirm `set_dataset_binding` with returned column IDs
+   and either the matching proposed recipe or `generic` before the packet can
+   freeze.
 3. After the human freeze and `analyze_dataset`, call
    `materialize_data_evidence` for each numerical fact you need. Only cite the
    returned `data-evidence-*` IDs; do not calculate a result in prose.

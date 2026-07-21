@@ -289,6 +289,8 @@ class MeasurementModalityProposal(StrictModel):
     reasons: list[str] = Field(min_length=1, max_length=8)
     alternatives: list[str] = Field(default_factory=list, max_length=5)
     requires_confirmation: Literal[True] = True
+    authority: Literal["codex", "groundloop_heuristic"] = "groundloop_heuristic"
+    recorded_at: str | None = Field(default=None, max_length=80)
 
 
 class DataEvidence(StrictModel):

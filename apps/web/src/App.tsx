@@ -154,7 +154,8 @@ type Detail = {
     dataset_provenance?: string;
     artifact?: { filename: string; sha256: string };
     dataset_profile?: GenericProfile;
-    modality_proposal?: { candidate: string; confidence: string; reasons: string[]; alternatives: string[] };
+    modality_proposal?: { candidate: string; confidence: string; reasons: string[]; alternatives: string[]; authority: "codex" | "groundloop_heuristic"; recorded_at?: string | null };
+    heuristic_modality_signal?: { candidate: string; confidence: string; reasons: string[]; alternatives: string[] };
     dataset_binding?: { x_column_id: string; y_column_ids: string[] } | null;
     recipe?: { id: string; version: string } | null;
     retrieval_review?: {
@@ -262,7 +263,7 @@ function briefFor(detail: Detail) {
   const generic = detail.run.workflow === "generic_v2";
   const steps = detail.run.state === "DRAFT"
     ? [
-        generic ? "1. Call inspect_dataset_profile and propose_measurement_modality. The researcher must confirm set_dataset_binding and recipe selection; do not infer scientific roles from headers alone." : "1. While this Run is DRAFT, call record_source_reviews once for every supplied source. Assign direct sources one role: theory_basis, method_limit, or discriminating_control.",
+        generic ? "1. Call inspect_dataset_profile. Read the claim, method context, and supplied literature, then call record_measurement_modality with authority='codex'. Header inference is advisory only. The researcher must confirm set_dataset_binding and may keep the generic recipe." : "1. While this Run is DRAFT, call record_source_reviews once for every supplied source. Assign direct sources one role: theory_basis, method_limit, or discriminating_control.",
         generic ? "2. Record source reviews, then stop and ask the researcher to click FREEZE EVIDENCE. Do not freeze from Codex." : "2. Stop and ask the researcher to click FREEZE EVIDENCE in GroundLoop. Do not call create_evidence_packet before the researcher confirms the freeze.",
       ]
     : detail.run.state === "PACKET_READY"
@@ -594,7 +595,9 @@ function BindingPanel({ detail, profile, onNotice, onRefresh }: { detail: Detail
   const numeric = profile.columns.filter((column) => column.inferred_type === "numeric" || column.inferred_type === "integer");
   const [xColumnId, setXColumnId] = useState(profile.columns[0]?.column_id ?? "");
   const [yColumnId, setYColumnId] = useState(numeric.find((column) => column.column_id !== profile.columns[0]?.column_id)?.column_id ?? numeric[0]?.column_id ?? "");
-  const proposal = detail.draft?.modality_proposal?.candidate ?? "generic";
+  const routing = detail.draft?.modality_proposal;
+  const codexProposed = routing?.authority === "codex";
+  const proposal = codexProposed ? routing.candidate : "generic";
   const confirm = async () => {
     if (!xColumnId || !yColumnId || xColumnId === yColumnId) {
       onNotice("Select distinct X and Y columns before confirming the research binding.");
@@ -603,14 +606,14 @@ function BindingPanel({ detail, profile, onNotice, onRefresh }: { detail: Detail
     const selected = [xColumnId, yColumnId].map((id) => profile.columns.find((column) => column.column_id === id)).filter(Boolean);
     const confirmedUnits = Object.fromEntries(selected.flatMap((column) => column?.unit.value ? [[column.column_id, column.unit.value]] : []));
     try {
-      await api(`/api/generic/runs/${detail.run.run_id}/binding`, { method: "POST", body: JSON.stringify({ binding: { artifact_id: "artifact-001", x_column_id: xColumnId, y_column_ids: [yColumnId], confirmed_units: confirmedUnits, confirmation_authority: "researcher", confirmed_at: new Date().toISOString() }, recipe: proposal === "generic_spectrum" ? "generic_spectrum" : proposal === "electrical_transport_rt" ? "electrical_transport_rt" : "generic" }) });
+      await api(`/api/generic/runs/${detail.run.run_id}/binding`, { method: "POST", body: JSON.stringify({ binding: { artifact_id: "artifact-001", x_column_id: xColumnId, y_column_ids: [yColumnId], confirmed_units: confirmedUnits, confirmation_authority: "researcher", confirmed_at: new Date().toISOString() }, recipe: proposal }) });
       onNotice("Research binding confirmed. Codex can now review source roles; freeze remains your decision.");
       onRefresh();
     } catch (caught) {
       onNotice(`Binding blocked: ${caught instanceof Error ? caught.message : "check the selected columns."}`);
     }
   };
-  return <section className="binding-panel"><div><p className="kicker">RESEARCHER CONFIRMATION / DATA BINDING</p><h2>Columns are not scientific roles until you confirm them.</h2><p>Codex proposed <strong>{proposal.replaceAll("_", " ")}</strong>. Confirm the primary axis and observable before the packet can freeze.</p></div><div className="binding-controls"><label><span>X / INDEPENDENT</span><select value={xColumnId} onChange={(event) => setXColumnId(event.target.value)}>{profile.columns.map((column) => <option value={column.column_id} key={column.column_id}>{column.name} · {column.unit.value ?? "unit unknown"}</option>)}</select></label><label><span>Y / OBSERVABLE</span><select value={yColumnId} onChange={(event) => setYColumnId(event.target.value)}>{numeric.map((column) => <option value={column.column_id} key={column.column_id}>{column.name} · {column.unit.value ?? "unit unknown"}</option>)}</select></label><button type="button" className="primary-button" onClick={() => void confirm()}>CONFIRM BINDING <Check size={15} /></button></div></section>;
+  return <section className="binding-panel"><div><p className="kicker">RESEARCHER CONFIRMATION / DATA BINDING</p><h2>Columns are not scientific roles until you confirm them.</h2>{codexProposed ? <p><strong>CODEX PROPOSAL / {proposal.replaceAll("_", " ")}</strong> · {routing?.reasons[0] ?? "Recorded from the Run context."} Confirm the primary axis and observable before the packet can freeze.</p> : <p><strong>CONTROL PENDING / NO CODEX MODALITY COMMITTED</strong> · GroundLoop's header signal is advisory only. Confirm this binding as generic, or ask Codex to read the method and literature before it proposes a recipe.</p>}</div><div className="binding-controls"><label><span>X / INDEPENDENT</span><select value={xColumnId} onChange={(event) => setXColumnId(event.target.value)}>{profile.columns.map((column) => <option value={column.column_id} key={column.column_id}>{column.name} · {column.unit.value ?? "unit unknown"}</option>)}</select></label><label><span>Y / OBSERVABLE</span><select value={yColumnId} onChange={(event) => setYColumnId(event.target.value)}>{numeric.map((column) => <option value={column.column_id} key={column.column_id}>{column.name} · {column.unit.value ?? "unit unknown"}</option>)}</select></label><button type="button" className="primary-button" onClick={() => void confirm()}>CONFIRM {codexProposed ? "PROPOSED" : "GENERIC"} BINDING <Check size={15} /></button></div></section>;
 }
 
 function GenericEvidenceDeck({ profile, evidence, method }: { profile: GenericProfile; evidence: Detail["data_evidence"]; method: string }) {
