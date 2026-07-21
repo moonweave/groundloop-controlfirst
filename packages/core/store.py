@@ -22,6 +22,7 @@ from .models import (
     DatasetProfile,
     EvidenceRef,
     Finding,
+    LiteratureCandidate,
     MechanismVerdict,
     MeasurementModalityProposal,
     Report,
@@ -42,7 +43,9 @@ def _retrieval_provider_label(sources: list[SourceInput]) -> str:
         return "OpenAlex + arXiv candidate retrieval"
     if providers == {"arxiv"}:
         return "arXiv preprint candidate retrieval"
-    return "OpenAlex indexed-abstract candidate retrieval"
+    if providers == {"openalex"}:
+        return "OpenAlex indexed-abstract candidate retrieval"
+    return " + ".join(sorted(providers)) + " candidate retrieval"
 
 
 def _retrieval_summary(sources: list[SourceInput]) -> str:
@@ -54,6 +57,14 @@ def _retrieval_summary(sources: list[SourceInput]) -> str:
     if arxiv_count:
         parts.append(f"{arxiv_count} arXiv preprint candidate(s)")
     return " + ".join(parts) or "No source candidates"
+
+
+def _canonical_source_identity(value: str) -> str:
+    identity = value.strip().lower().rstrip("/")
+    for prefix in ("https://doi.org/", "http://doi.org/", "doi:"):
+        if identity.startswith(prefix):
+            return identity[len(prefix):]
+    return identity
 
 
 class RunStore:
@@ -141,6 +152,64 @@ class RunStore:
             "heuristic_modality_signal": self._heuristic_modality_signal(run),
             "binding": self._read(run / "inputs" / "dataset-binding.json") if (run / "inputs" / "dataset-binding.json").is_file() and not binding_invalidated else None,
         }
+
+    def import_literature_candidates(
+        self, run_id: str, candidates: list[LiteratureCandidate]
+    ) -> dict[str, Any]:
+        """Import bounded Codex-discovered literature without fetching any URL."""
+        run = self._require_draft(run_id)
+        if self.get_summary(run_id).workflow != "generic_v2":
+            raise ValueError("literature candidate import is available through the generic v2 workflow")
+        if not 1 <= len(candidates) <= 20:
+            raise ValueError("import between 1 and 20 literature candidates")
+
+        candidate_sources = [
+            SourceInput(
+                id=item.id,
+                title=item.title,
+                authors=item.authors,
+                year=item.year,
+                url_or_doi=item.url_or_doi,
+                locator=item.locator,
+                untrusted_content=item.excerpt,
+                retrieval_provider=item.retrieval_provider,
+                publication_status=item.publication_status,
+                retrieved_at=item.retrieved_at,
+                search_query=item.search_query,
+                discovery_rationale=item.discovery_rationale,
+                content_sha256=item.content_sha256,
+            )
+            for item in candidates
+        ]
+        existing_path = run / "inputs" / "retrieval-candidates.json"
+        existing_raw = self._read(existing_path) if existing_path.is_file() else self._read(run / "inputs" / "sources.json")
+        existing = [SourceInput.model_validate(item) for item in existing_raw]
+        all_sources = [*existing, *candidate_sources]
+        seen_ids: set[str] = set()
+        seen_urls: set[str] = set()
+        seen_hashes: set[str] = set()
+        duplicates: list[str] = []
+        for source in all_sources:
+            canonical = _canonical_source_identity(source.url_or_doi)
+            content_hash = source.content_sha256 or ""
+            if source.id in seen_ids or canonical in seen_urls or (content_hash and content_hash in seen_hashes):
+                duplicates.append(source.id)
+            seen_ids.add(source.id)
+            seen_urls.add(canonical)
+            if content_hash:
+                seen_hashes.add(content_hash)
+        if duplicates:
+            raise ValueError(f"duplicate literature candidate identity: {', '.join(sorted(set(duplicates)))}")
+
+        self._write(existing_path, [source.model_dump(mode="json") for source in all_sources])
+        self._write(run / "inputs" / "sources.json", [source.model_dump(mode="json") for source in all_sources])
+        review_path = run / "analysis" / "source-adjudication.json"
+        if review_path.is_file():
+            review_path.unlink()
+            self._record_event(run, action="literature_review_invalidated", state=RunState.DRAFT, summary="Imported literature candidates changed the source boundary; Codex must review every candidate again.")
+        self._write(run / "inputs" / "codex-routing-invalidated.json", {"invalid": True, "at": now_iso()})
+        self._record_event(run, action="literature_candidates_imported", state=RunState.DRAFT, summary=f"Imported {len(candidate_sources)} bounded literature candidate(s) from Codex; no URL was fetched by GroundLoop.")
+        return self.get_detail(run_id)
 
     def propose_measurement_modality(self, run_id: str) -> dict[str, Any]:
         """Return a header/method heuristic only; it cannot select a recipe."""
@@ -462,7 +531,10 @@ class RunStore:
             self._write(run / "inputs" / "dataset-artifact.json", artifact.model_dump(mode="json"))
             self._write(run / "inputs" / "dataset-profile.json", profile.model_dump(mode="json"))
         if sources is not None:
-            self._write(run / "inputs" / "sources.json", [item.model_dump(mode="json") for item in sources])
+            source_payload = [item.model_dump(mode="json") for item in sources]
+            self._write(run / "inputs" / "sources.json", source_payload)
+            if (run / "inputs" / "retrieval-candidates.json").is_file():
+                self._write(run / "inputs" / "retrieval-candidates.json", source_payload)
             review_path = run / "analysis" / "source-adjudication.json"
             if review_path.is_file():
                 review_path.unlink()
@@ -700,6 +772,9 @@ class RunStore:
         if recipe["id"] != "generic" and (routing.authority != "codex" or routing.candidate != recipe["id"]):
             raise ValueError("the selected non-generic recipe has stale or missing Codex measurement routing; record it again before freezing")
         source_review = self._selected_source_review(run, sources)
+        candidate_path = run / "inputs" / "retrieval-candidates.json"
+        candidate_sources = self._read(candidate_path) if candidate_path.is_file() else [source.model_dump(mode="json") for source in sources]
+        candidate_review = self._read(run / "analysis" / "source-adjudication.json")
         method_ref = EvidenceRef(
             id="method-evidence-frozen", kind="method", artifact_id="method-001",
             locator={"section": "frozen-method-context"}, excerpt=methods[:1000],
@@ -709,6 +784,8 @@ class RunStore:
             "schema_version": 2,
             "claim": claim.model_dump(mode="json"),
             "sources": [source.model_dump(mode="json") for source in sources],
+            "source_candidates": candidate_sources,
+            "candidate_review": candidate_review,
             "source_relevance": [item.model_dump(mode="json") for item in screen_source_relevance(claim, sources)],
             "methods": methods,
             "artifact": artifact.model_dump(mode="json"),
@@ -1148,6 +1225,7 @@ class RunStore:
             "schema_version": 2, "run_id": run_id, "claim": packet["claim"]["claim"], "state": "EXPORTED",
             "artifact": packet["artifact"], "dataset_profile": packet["dataset_profile"], "dataset_binding": packet["dataset_binding"],
             "recipe": packet["recipe"], "sources": packet["sources"], "source_review": packet.get("source_review"),
+            "source_candidates": packet.get("source_candidates", packet["sources"]), "candidate_review": packet.get("candidate_review"),
             "methods": packet["methods"], "data_evidence": data_evidence, "control": control.model_dump(mode="json", by_alias=True),
             "convergence": convergence.model_dump(mode="json", by_alias=True),
             "verdict": {"label": label, "reason": convergence.dominant_gap, "blocking_signature_ids": [item.signature_id for item in convergence.alignments if item.status != "Observed"]},
@@ -1189,15 +1267,26 @@ class RunStore:
         result: dict[str, Any] = {"run": summary.model_dump(mode="json"), "timeline": self._timeline(run)}
         if summary.state == RunState.DRAFT:
             binding_invalidated = self._generic_binding_invalidated(run)
+            source_candidates_path = run / "inputs" / "retrieval-candidates.json"
+            source_candidates = self._read(source_candidates_path) if source_candidates_path.is_file() else self._read(run / "inputs" / "sources.json")
+            review_path = run / "analysis" / "source-adjudication.json"
+            review = self._read(review_path) if review_path.is_file() else None
             result["input_artifacts"] = sorted(path.name for path in (run / "inputs").iterdir() if path.is_file())
             result["draft"] = {
                 "claim": self._read(run / "inputs" / "claim.json"),
                 "methods": (run / "inputs" / "methods.md").read_text(encoding="utf-8"),
-                "sources": self._read(run / "inputs" / "sources.json"),
+                "sources": source_candidates,
                 "artifact": self._read(run / "inputs" / "dataset-artifact.json"),
                 "dataset_profile": self._read(run / "inputs" / "dataset-profile.json"),
                 "modality_proposal": self._active_measurement_routing(run),
                 "heuristic_modality_signal": self._heuristic_modality_signal(run),
+                "retrieval_review": {
+                    "provider": _retrieval_provider_label([SourceInput.model_validate(item) for item in source_candidates]) if source_candidates else "Codex-imported candidates",
+                    "status": "completed" if review else "required",
+                    "candidate_count": len(source_candidates),
+                    "direct_source_ids": review.get("direct_source_ids", []) if review else [],
+                    "adjudications": review.get("adjudications", []) if review else [],
+                },
                 "dataset_binding": self._read(run / "inputs" / "dataset-binding.json") if (run / "inputs" / "dataset-binding.json").is_file() and not binding_invalidated else None,
                 "recipe": self._read(run / "inputs" / "recipe.json") if (run / "inputs" / "recipe.json").is_file() else None,
             }
@@ -1418,15 +1507,32 @@ class RunStore:
         convergence = ConvergenceMap.model_validate(report["convergence"])
         profile = DatasetProfile.model_validate(report["dataset_profile"])
         binding = DatasetBinding.model_validate(report["dataset_binding"])
+        candidates = [SourceInput.model_validate(item) for item in report.get("source_candidates", report["sources"])]
+        candidate_review = {item["source_id"]: item for item in (report.get("candidate_review") or {}).get("adjudications", [])}
         lines = [
             "# GroundLoop research decision", "", f"**Run:** `{report['run_id']}`", "", "## Claim", "", report["claim"], "",
             "## Evidence boundary", "", f"- Artifact: `{report['artifact']['filename']}` (`{report['artifact']['sha256']}`)",
             f"- Profile: {profile.row_count} rows × {profile.column_count} columns; row order preserved.",
             f"- Recipe: `{report['recipe']['id']}` v{report['recipe']['version']}",
             f"- Binding: X `{binding.x_column_id}`; Y {', '.join(binding.y_column_ids)}", "",
+            "## Literature provenance", "",
+            "GroundLoop stored only the bounded excerpts supplied by Codex. It did not fetch any URL or DOI.", "",
+        ]
+        for source in candidates:
+            review = candidate_review.get(source.id, {})
+            lines.extend([
+                f"- `{source.id}` — **{review.get('verdict', 'unreviewed')}** / {(review.get('role') or 'unassigned').replace('_', ' ')}",
+                f"  - {source.title} ({source.year}); provider `{source.retrieval_provider}`; status `{source.publication_status}`",
+                f"  - Locator: {source.locator.section or source.locator.page or 'bounded excerpt'}",
+                f"  - Excerpt SHA-256: `{source.content_sha256 or 'not recorded'}`",
+                f"  - Search query: {source.search_query or 'not recorded'}",
+                f"  - Discovery rationale: {source.discovery_rationale or 'not recorded'}",
+            ])
+        lines.extend([
+            "",
             "## Verdict", "", f"**{report['verdict']['label'].replace('_', ' ')}** — {report['verdict']['reason']}", "",
             "## Required signatures", "",
-        ]
+        ])
         for signature in convergence.signatures:
             lines.extend([f"- `{signature.id}` — **{signature.name}**", f"  - Requirement: {signature.requirement}", f"  - Expected observation: {signature.expected_observation}", f"  - Falsifying outcome: {signature.falsifying_outcome}", f"  - Theory evidence: {', '.join(signature.theory_evidence_ref_ids) or 'none recorded'}"])
         lines.extend(["", "## Materialized data evidence", ""])

@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ from packages.core.models import (
     ClaimInput,
     ControlProposal,
     DatasetBinding,
+    LiteratureCandidate,
     MeasurementModalityProposal,
     RequiredSignature,
     SourceAdjudication,
@@ -26,6 +28,25 @@ def _codex_spectrum_proposal() -> MeasurementModalityProposal:
         reasons=["The method and bounded CSV describe steady-state wavelength-intensity spectroscopy."],
         alternatives=["generic_sweep"],
         authority="codex",
+    )
+
+
+def _literature_candidate(source_id: str, url: str = "https://doi.org/10.1000/spectrum", excerpt_suffix: str = "") -> LiteratureCandidate:
+    excerpt = "A steady-state spectral feature does not uniquely identify a microscopic mechanism without an independent discriminator." + excerpt_suffix
+    return LiteratureCandidate(
+        id=source_id,
+        title="Limits of steady-state spectral assignment",
+        authors=["Test Lab"],
+        year=2024,
+        url_or_doi=url,
+        retrieval_provider="crossref",
+        publication_status="peer_reviewed",
+        excerpt=excerpt,
+        locator={"section": "Abstract"},
+        retrieved_at="2026-07-21T00:00:00+00:00",
+        search_query="steady state spectral assignment mechanism control",
+        discovery_rationale="Codex found this source while checking whether the supplied measurement can distinguish the claimed mechanism.",
+        content_sha256=hashlib.sha256(excerpt.encode()).hexdigest(),
     )
 
 
@@ -54,6 +75,7 @@ def _complete_to_analysis(store: RunStore) -> tuple[str, str]:
     profile = store.inspect_dataset_profile(run_id)
     assert profile["modality_proposal"]["candidate"] == "generic_spectrum"
     assert profile["modality_proposal"]["authority"] == "groundloop_heuristic"
+    store.import_literature_candidates(run_id, [_literature_candidate("src-spectrum-candidate", "https://doi.org/10.1000/spectrum-candidate")])
     store.record_measurement_modality(run_id, _codex_spectrum_proposal())
     store.set_dataset_binding(
         run_id,
@@ -68,7 +90,10 @@ def _complete_to_analysis(store: RunStore) -> tuple[str, str]:
     )
     store.record_source_reviews(
         run_id,
-        [SourceAdjudication(source_id=source.id, verdict="direct", role="method_limit", rationale="The excerpt limits mechanism assignment from a steady-state feature.")],
+        [
+            SourceAdjudication(source_id=source.id, verdict="direct", role="method_limit", rationale="The excerpt limits mechanism assignment from a steady-state feature."),
+            SourceAdjudication(source_id="src-spectrum-candidate", verdict="reject", rationale="The imported candidate is retained in provenance but not used for this decision."),
+        ],
     )
     store.prepare_packet(run_id)
     store.inspect_sources(
@@ -127,8 +152,101 @@ def test_generic_spectrum_run_materializes_evidence_and_exports(tmp_path: Path) 
     assert report["data_evidence"][0]["result"]["x"] == 620
     markdown = store.get_report_markdown(run_id)
     assert "Materialized data evidence" in markdown
+    assert "Literature provenance" in markdown
+    assert "Excerpt SHA-256" in markdown
     assert "two-wire" not in markdown.lower()
     assert "resistance" not in markdown.lower()
+
+
+def test_imported_literature_is_bounded_provenance_and_requires_review(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    detail = store.create_generic_run(
+        ClaimInput(claim="A feature near 620 nm demonstrates defect-state emission."),
+        "Steady-state photoluminescence was exported as a wavelength and intensity table under fixed excitation conditions.",
+        SPECTRUM,
+        [],
+        filename="spectrum.csv",
+    )
+    run_id = detail["run"]["run_id"]
+    store.import_literature_candidates(run_id, [_literature_candidate("src-imported-a"), _literature_candidate("src-imported-b", "https://doi.org/10.1000/spectrum-b", " A second source reports the same limitation.")])
+    draft = store.get_detail(run_id)["draft"]
+    assert len(draft["sources"]) == 2
+    assert draft["sources"][0]["retrieval_provider"] == "crossref"
+    assert draft["sources"][0]["publication_status"] == "peer_reviewed"
+    assert draft["retrieval_review"]["status"] == "required"
+    with pytest.raises(ValueError, match="source roles"):
+        store.prepare_packet(run_id)
+    store.record_source_reviews(
+        run_id,
+        [
+            SourceAdjudication(source_id="src-imported-a", verdict="direct", role="method_limit", rationale="The bounded excerpt states the assignment limitation."),
+            SourceAdjudication(source_id="src-imported-b", verdict="reject", rationale="The candidate is not needed for this bounded decision."),
+        ],
+    )
+    store.set_dataset_binding(
+        run_id,
+        DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_units={"col-001": "nm", "col-002": "counts"}, confirmed_at="2026-07-21T00:00:00+00:00"),
+    )
+    store.prepare_packet(run_id)
+    packet = store.get_packet(run_id)
+    assert packet["source_candidates"][0]["search_query"]
+    assert packet["source_candidates"][0]["content_sha256"] == hashlib.sha256(packet["source_candidates"][0]["untrusted_content"].encode()).hexdigest()
+    assert packet["candidate_review"]["adjudications"][1]["verdict"] == "reject"
+
+
+def test_import_rejects_duplicate_identity_and_invalid_excerpt_hash(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    detail = store.create_generic_run(
+        ClaimInput(claim="A bounded measurement contains a discriminating response."),
+        "A local tabular measurement was exported with method context sufficient for source review and control design.",
+        b"x,y\n1,2\n2,4\n",
+        [],
+    )
+    run_id = detail["run"]["run_id"]
+    store.import_literature_candidates(run_id, [_literature_candidate("src-imported-a")])
+    with pytest.raises(ValueError, match="duplicate literature candidate identity"):
+        store.import_literature_candidates(run_id, [_literature_candidate("src-imported-b", "doi:10.1000/spectrum")])
+    with pytest.raises(ValueError, match="content_sha256"):
+        LiteratureCandidate(**{**_literature_candidate("src-invalid").model_dump(), "content_sha256": "0" * 64})
+    with pytest.raises(ValueError, match="publication_status"):
+        LiteratureCandidate.model_validate({**_literature_candidate("src-status").model_dump(), "publication_status": "journal"})
+    with pytest.raises(ValueError, match="page"):
+        LiteratureCandidate.model_validate({**_literature_candidate("src-locator").model_dump(), "locator": {"page": 0}})
+
+
+def test_source_change_invalidates_review_and_frozen_runs_reject_mutation(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    detail = store.create_generic_run(
+        ClaimInput(claim="A bounded measurement contains a discriminating response."),
+        "A local tabular measurement was exported with method context sufficient for source review and control design.",
+        b"x,y\n1,2\n2,4\n",
+        [],
+    )
+    run_id = detail["run"]["run_id"]
+    first = _literature_candidate("src-first", "https://doi.org/10.1000/first")
+    store.import_literature_candidates(run_id, [first])
+    store.record_measurement_modality(run_id, MeasurementModalityProposal(candidate="generic_sweep", confidence="medium", reasons=["Codex read the bounded method and selected a generic sweep interpretation."], authority="codex"))
+    store.set_dataset_binding(run_id, DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_at="2026-07-21T00:00:00+00:00"))
+    store.record_source_reviews(run_id, [SourceAdjudication(source_id="src-first", verdict="direct", role="theory_basis", rationale="The candidate is relevant to the claimed response.")])
+    updated = SourceInput(
+        id="src-second",
+        title="A changed bounded source",
+        authors=["Test Lab"],
+        year=2026,
+        url_or_doi="https://doi.org/10.1000/second",
+        locator={"section": "Methods"},
+        untrusted_content="This replacement excerpt changes the source boundary and must be reviewed.",
+        retrieval_provider="manual",
+        publication_status="unknown",
+    )
+    store.update_sources(run_id, [updated])
+    assert store.get_detail(run_id)["draft"]["retrieval_review"]["status"] == "required"
+    with pytest.raises(ValueError, match="source roles"):
+        store.prepare_packet(run_id)
+    store.record_source_reviews(run_id, [SourceAdjudication(source_id="src-second", verdict="direct", role="method_limit", rationale="The replacement excerpt is now the reviewed source boundary.")])
+    store.prepare_packet(run_id)
+    with pytest.raises(ValueError, match="DRAFT"):
+        store.update_sources(run_id, [updated])
 
 
 def test_generic_alignments_reject_unmaterialized_observation(tmp_path: Path) -> None:

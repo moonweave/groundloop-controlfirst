@@ -240,6 +240,10 @@ a { color: inherit; }
 .source-main p { margin: 0 0 11px; color: #647177; font-size: 12px; line-height: 1.45; }
 .source-main a { display: inline-flex; align-items: center; gap: 5px; color: var(--cobalt); font-family: var(--mono); font-size: 9px; text-decoration: none; }
 .source-rationale { margin: 10px 0 0; color: #707b7f; font-size: 11px; line-height: 1.45; }
+.source-state { display: inline-block; border: 1px solid #a7b1b1; padding: 6px 8px; color: #6e7a7e; font-family: var(--mono); font-size: 8px; letter-spacing: .06em; }
+.source-state.direct { border-color: var(--cobalt); color: var(--cobalt); }
+.source-state.reject { border-color: #b44d42; color: #b44d42; }
+.source-state.contextual { border-color: #a87a28; color: #8a641f; }
 .role-chip { display: inline-block; border: 1px dashed #a7b1b1; padding: 7px 8px; color: #6e7a7e; font-family: var(--mono); font-size: 8px; letter-spacing: .06em; }
 .role-chip.assigned { border-style: solid; border-color: var(--cobalt); color: var(--cobalt); }
 .source-provenance { display: grid; align-content: start; gap: 8px; color: #7a8689; font-size: 8px; letter-spacing: .06em; }

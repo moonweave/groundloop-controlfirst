@@ -11,6 +11,7 @@ from packages.core.models import (
     ClaimInput,
     ControlProposal,
     DatasetBinding,
+    LiteratureCandidate,
     MeasurementModalityProposal,
     Finding,
     RequiredSignature,
@@ -71,6 +72,11 @@ def create_generic_run(
 @mcp.tool(description=f"Return the bounded generic CSV profile, a Codex-authored modality proposal when one is current, the advisory header heuristic separately, and any confirmed binding. Profile results are not scientific evidence. {GUIDANCE}")
 def inspect_dataset_profile(run_id: str) -> dict[str, Any]:
     return _result(lambda: store.inspect_dataset_profile(run_id))
+
+
+@mcp.tool(description=f"Import bounded literature candidates discovered by Codex. Pass excerpts and provenance inline; GroundLoop never fetches the supplied URL or DOI. Candidates remain unreviewed until record_source_reviews assigns a role and the researcher freezes the packet. {GUIDANCE}")
+def import_literature_candidates(run_id: str, candidates: list[LiteratureCandidate]) -> dict[str, Any]:
+    return _result(lambda: store.import_literature_candidates(run_id, candidates))
 
 
 @mcp.tool(description=f"Recompute only GroundLoop's advisory header/method heuristic. It is not scientific routing, cannot activate a recipe, and must not replace reading the supplied literature and method context. {GUIDANCE}")

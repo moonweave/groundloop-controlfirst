@@ -57,8 +57,12 @@ type Source = {
   url_or_doi: string;
   locator: { section?: string; page?: number };
   untrusted_content: string;
-  retrieval_provider: "openalex" | "arxiv";
-  publication_status: "indexed_abstract" | "preprint";
+  retrieval_provider: string;
+  publication_status: "peer_reviewed" | "preprint" | "indexed_abstract" | "unknown";
+  retrieved_at?: string | null;
+  search_query?: string | null;
+  discovery_rationale?: string | null;
+  content_sha256?: string | null;
 };
 type SourceAdjudication = {
   source_id: string;
@@ -68,6 +72,9 @@ type SourceAdjudication = {
 };
 type SourceReview = {
   provider: string;
+  status?: "required" | "completed";
+  candidate_count?: number;
+  direct_source_ids?: string[];
   adjudications: SourceAdjudication[];
   adjudicated_at: string;
 };
@@ -169,6 +176,8 @@ type Detail = {
   packet?: {
     claim: { claim: string };
     sources: Source[];
+    source_candidates?: Source[];
+    candidate_review?: SourceReview;
     methods: string;
     dataset?: Dataset;
     dataset_profile?: GenericProfile;
@@ -639,11 +648,12 @@ function TraceChart({ rows }: { rows: Dataset["rows"] }) {
 }
 
 function SourcesScreen({ detail }: { detail: Detail }) {
-  const sources = detail.packet?.sources ?? detail.draft?.sources ?? [];
-  const review = detail.packet?.source_review ?? detail.report?.source_review ?? detail.draft?.retrieval_review;
+  const sources = detail.packet?.source_candidates ?? detail.packet?.sources ?? detail.draft?.sources ?? [];
+  const review = detail.packet?.candidate_review ?? detail.packet?.source_review ?? detail.report?.source_review ?? detail.draft?.retrieval_review;
   const adjudications = review?.adjudications ?? [];
   const directCount = adjudications.filter((item) => item.verdict === "direct").length;
-  return <div className="secondary-page"><div className="secondary-heading"><div><p className="kicker">EVIDENCE ROLE REVIEW / SOURCE LEDGER</p><h1>Every source earns its place.</h1><p>Search results are candidates. Only a semantically reviewed, role-assigned excerpt can cross the evidence boundary.</p></div><div className="review-count"><strong>{directCount.toString().padStart(2, "0")}</strong><span>DIRECT<br />UNITS</span></div></div><div className="review-toolbar"><span>{sources.length} candidates · {directCount} direct · {detail.run.state === "DRAFT" ? "UNFROZEN" : "BOUNDARY FROZEN"}</span><span className="tiny-note"><LockKeyhole size={13} /> Source content is untrusted input.</span></div><div className="source-ledger"><div className="ledger-head"><span>SOURCE / BOUNDED EXCERPT</span><span>SEMANTIC REVIEW</span><span>EVIDENCE ROLE</span><span>PROVENANCE</span></div>{sources.length === 0 ? <div className="ledger-empty"><Beaker size={19} /><span>No sources have been supplied yet. Codex can add candidates before freeze.</span></div> : sources.map((source) => { const adjudication = adjudications.find((item) => item.source_id === source.id); return <article className="source-row" key={source.id}><div className="source-main"><span className="source-id">{source.id}</span><h3>{source.title}</h3><p>{source.untrusted_content}</p><a href={source.url_or_doi} target="_blank" rel="noreferrer">{source.locator.section ?? source.url_or_doi}<ArrowRight size={12} /></a></div><div><StatusBadge status={adjudication?.verdict === "direct" ? "Observed" : "Missing"} label={adjudication?.verdict?.toUpperCase() ?? "PENDING"} /><p className="source-rationale">{adjudication?.rationale ?? "Awaiting Codex semantic review."}</p></div><div><span className={`role-chip ${adjudication?.role ? "assigned" : ""}`}>{sourceRoleLabel(adjudication?.role)}</span><p className="source-rationale">{adjudication?.role === "theory_basis" ? "What must be true if the mechanism is right." : adjudication?.role === "method_limit" ? "What this measurement cannot distinguish." : adjudication?.role === "discriminating_control" ? "What separates the competing explanations." : "One role is required before this source becomes decision evidence."}</p></div><div className="source-provenance"><span>{source.retrieval_provider === "arxiv" ? "ARXIV / PREPRINT" : "OPENALEX / INDEXED ABSTRACT"}</span><span>{source.year} · {source.authors[0]}</span><span className="hash-line">LOCATOR · {source.locator.section ?? "ABSTRACT"}</span></div></article>; })}</div><div className="freeze-callout"><div><LockKeyhole size={18} /><div><strong>{detail.run.state === "DRAFT" ? "Evidence freeze belongs to the researcher." : "Evidence boundary is frozen."}</strong><span>{detail.run.state === "DRAFT" ? "Codex can propose roles and adjudications; the UI commits the packet." : "Changing the claim or method now requires a Fork Run."}</span></div></div><span className="freeze-stamp">{detail.run.state === "DRAFT" ? "READY WHEN YOU ARE" : "IMMUTABLE PACKET"}</span></div></div>;
+  const reviewPending = detail.run.state === "DRAFT" && review?.status === "required";
+  return <div className="secondary-page"><div className="secondary-heading"><div><p className="kicker">EVIDENCE ROLE REVIEW / SOURCE LEDGER</p><h1>Every source earns its place.</h1><p>Search results are candidates. Only a semantically reviewed, role-assigned excerpt can cross the evidence boundary.</p></div><div className="review-count"><strong>{directCount.toString().padStart(2, "0")}</strong><span>DIRECT<br />UNITS</span></div></div><div className="review-toolbar"><span>{sources.length} candidates · {directCount} direct · {detail.run.state === "DRAFT" ? "UNFROZEN" : "BOUNDARY FROZEN"}</span>{reviewPending && <span className="tiny-note">SOURCE REVIEW STALE · Codex must review the current candidate set again.</span>}<span className="tiny-note"><LockKeyhole size={13} /> Source content is untrusted input.</span></div><div className="source-ledger"><div className="ledger-head"><span>SOURCE / BOUNDED EXCERPT</span><span>SEMANTIC REVIEW</span><span>EVIDENCE ROLE</span><span>PROVENANCE</span></div>{sources.length === 0 ? <div className="ledger-empty"><Beaker size={19} /><span>No sources have been supplied yet. Codex can add candidates before freeze.</span></div> : sources.map((source) => { const adjudication = adjudications.find((item) => item.source_id === source.id); const state = adjudication?.verdict ?? "unreviewed"; return <article className="source-row" key={source.id}><div className="source-main"><span className="source-id">{source.id}</span><h3>{source.title}</h3><p>{source.untrusted_content}</p><a href={source.url_or_doi} target="_blank" rel="noreferrer">{source.locator.section ?? source.url_or_doi}<ArrowRight size={12} /></a></div><div><span className={`source-state ${state}`}>{state.toUpperCase()}</span><p className="source-rationale">{adjudication?.rationale ?? "Awaiting Codex semantic review."}</p></div><div><span className={`role-chip ${adjudication?.role ? "assigned" : ""}`}>{sourceRoleLabel(adjudication?.role)}</span><p className="source-rationale">{adjudication?.role === "theory_basis" ? "What must be true if the mechanism is right." : adjudication?.role === "method_limit" ? "What this measurement cannot distinguish." : adjudication?.role === "discriminating_control" ? "What separates the competing explanations." : "One role is required before this source becomes decision evidence."}</p></div><div className="source-provenance"><span>{source.retrieval_provider.toUpperCase()} / {source.publication_status.replaceAll("_", " ").toUpperCase()}</span><span>{source.year} · {source.authors[0]}</span><span className="hash-line">LOCATOR · {source.locator.section ?? "ABSTRACT"}</span><span className="hash-line">EXCERPT SHA · {(source.content_sha256 ?? "not recorded").slice(0, 16)}</span>{source.search_query && <span className="hash-line">QUERY · {source.search_query}</span>}</div></article>; })}</div><div className="freeze-callout"><div><LockKeyhole size={18} /><div><strong>{detail.run.state === "DRAFT" ? "Evidence freeze belongs to the researcher." : "Evidence boundary is frozen."}</strong><span>{detail.run.state === "DRAFT" ? "Codex can propose roles and adjudications; the UI commits the packet." : "Changing the claim or method now requires a Fork Run."}</span></div></div><span className="freeze-stamp">{detail.run.state === "DRAFT" ? "READY WHEN YOU ARE" : "IMMUTABLE PACKET"}</span></div></div>;
 }
 
 function AuditScreen({ detail }: { detail: Detail }) {

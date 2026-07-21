@@ -7,7 +7,7 @@ that every scientific file format or measurement modality is supported.
 ```text
 claim + method + CSV + source candidates
   → profile + advisory header signal
-  → Codex-authored modality proposal
+  → Codex literature candidates + modality proposal
   → researcher-confirmed binding and recipe
   → semantic source roles + human freeze
   → GroundLoop-materialized data facts
@@ -20,6 +20,7 @@ claim + method + CSV + source candidates
 
 | Action | Codex | GroundLoop | Researcher |
 |---|---:|---:|---:|
+| Search/import literature | searches outside GroundLoop and imports bounded candidates | validates provenance and stores candidates | reviews source roles |
 | Propose modality / recipe | proposes from claim, methods, sources, and profile | stores and exposes only an advisory header signal | confirms or keeps generic |
 | Assign column roles and units | proposes | validates | confirms |
 | Calculate numeric fact | requests | executes | reviews |
@@ -34,6 +35,13 @@ sample rows, inferred types, candidate units, and explicit binding. The MVP UI
 supports one X column, one to three Y columns, optional group, and optional
 acquisition order. Header-derived units remain candidates until confirmed by
 the researcher.
+
+Codex may import literature candidates through the provider-neutral
+`import_literature_candidates` contract. Each candidate carries a bounded
+excerpt, URL/DOI, provider, publication status, locator, retrieval timestamp,
+search query, discovery rationale, and excerpt hash. GroundLoop does not fetch
+URLs. Import creates an unreviewed candidate only; every candidate must be
+adjudicated before the researcher can freeze the source boundary.
 
 No generic operation executes arbitrary expressions, Python, SQL, shell,
 smoothing, normalization, baseline correction, interpolation, or implicit fit

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Annotated, Any, Literal
@@ -27,8 +28,52 @@ class SourceInput(StrictModel):
     url_or_doi: str = Field(min_length=1, max_length=500)
     locator: Locator
     untrusted_content: str = Field(min_length=1, max_length=4000)
-    retrieval_provider: Literal["openalex", "arxiv"] = "openalex"
-    publication_status: Literal["indexed_abstract", "preprint"] = "indexed_abstract"
+    retrieval_provider: str = Field(default="openalex", min_length=1, max_length=80, pattern=r"^[a-zA-Z0-9_.-]+$")
+    publication_status: Literal["peer_reviewed", "preprint", "indexed_abstract", "unknown"] = "indexed_abstract"
+    retrieved_at: str | None = Field(default=None, max_length=80)
+    search_query: str | None = Field(default=None, max_length=500)
+    discovery_rationale: str | None = Field(default=None, max_length=500)
+    content_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$", validate_default=True)
+
+    @field_validator("content_sha256", mode="before")
+    @classmethod
+    def derive_content_hash(cls, value: str | None, info: Any) -> str | None:
+        if value:
+            return value
+        excerpt = info.data.get("untrusted_content")
+        return hashlib.sha256(excerpt.encode("utf-8")).hexdigest() if excerpt else value
+
+    @model_validator(mode="after")
+    def validate_content_hash(self) -> "SourceInput":
+        expected = hashlib.sha256(self.untrusted_content.encode("utf-8")).hexdigest()
+        if self.content_sha256 != expected:
+            raise ValueError("content_sha256 must match the bounded source excerpt")
+        return self
+
+
+class LiteratureCandidate(StrictModel):
+    """Codex-imported, bounded literature candidate before semantic review."""
+
+    id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    title: str = Field(min_length=1, max_length=300)
+    authors: list[str] = Field(min_length=1, max_length=20)
+    year: int = Field(ge=1800, le=2100)
+    url_or_doi: str = Field(min_length=1, max_length=500)
+    retrieval_provider: str = Field(min_length=1, max_length=80, pattern=r"^[a-zA-Z0-9_.-]+$")
+    publication_status: Literal["peer_reviewed", "preprint", "indexed_abstract", "unknown"]
+    excerpt: str = Field(min_length=1, max_length=4000)
+    locator: Locator
+    retrieved_at: str = Field(min_length=1, max_length=80)
+    search_query: str = Field(min_length=1, max_length=500)
+    discovery_rationale: str = Field(min_length=1, max_length=500)
+    content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_excerpt_hash(self) -> "LiteratureCandidate":
+        expected = hashlib.sha256(self.excerpt.encode("utf-8")).hexdigest()
+        if self.content_sha256 != expected:
+            raise ValueError("content_sha256 must match the bounded literature excerpt")
+        return self
 
 
 class SourceRelevance(StrictModel):

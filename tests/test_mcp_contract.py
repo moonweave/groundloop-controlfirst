@@ -1,7 +1,8 @@
+import hashlib
 from pathlib import Path
 
 from services.mcp_server import main as mcp_main
-from packages.core.models import DatasetBinding, MeasurementModalityProposal, SourceAdjudication, SourceInput
+from packages.core.models import DatasetBinding, LiteratureCandidate, MeasurementModalityProposal, SourceAdjudication, SourceInput
 from packages.core.store import RunStore
 
 
@@ -41,6 +42,27 @@ def test_generic_mcp_profile_binding_and_materialized_fact(tmp_path: Path, monke
     run_id = created["result"]["run"]["run_id"]
     profile = mcp_main.inspect_dataset_profile(run_id)
     assert profile["result"]["profile"]["columns"][0]["name"] == "wavelength_nm"
+    excerpt = "An independent control is required before a steady-state feature can identify a mechanism."
+    imported = mcp_main.import_literature_candidates(
+        run_id,
+        [LiteratureCandidate(
+            id="src-imported",
+            title="Spectral assignment limits",
+            authors=["Lab"],
+            year=2024,
+            url_or_doi="https://doi.org/10.1000/imported",
+            retrieval_provider="crossref",
+            publication_status="peer_reviewed",
+            excerpt=excerpt,
+            locator={"section": "Abstract"},
+            retrieved_at="2026-07-21T00:00:00+00:00",
+            search_query="spectral assignment limitation",
+            discovery_rationale="Codex checked whether the feature identifies the claimed mechanism.",
+            content_sha256=hashlib.sha256(excerpt.encode()).hexdigest(),
+        )],
+    )
+    assert imported["ok"] is True
+    assert any(item["retrieval_provider"] == "crossref" for item in imported["result"]["draft"]["sources"])
     rejected = mcp_main.set_dataset_binding(
         run_id,
         DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_units={"col-001": "nm", "col-002": "counts"}, confirmed_at="2026-07-21T00:00:00+00:00"),
@@ -64,7 +86,10 @@ def test_generic_mcp_profile_binding_and_materialized_fact(tmp_path: Path, monke
         "generic_spectrum",
     )
     assert binding["ok"] is True
-    reviewed = mcp_main.record_source_reviews(run_id, [SourceAdjudication(source_id="src-limit", verdict="direct", role="method_limit", rationale="The excerpt limits mechanism assignment.")])
+    reviewed = mcp_main.record_source_reviews(run_id, [
+        SourceAdjudication(source_id="src-limit", verdict="direct", role="method_limit", rationale="The excerpt limits mechanism assignment."),
+        SourceAdjudication(source_id="src-imported", verdict="reject", rationale="The candidate is retained in provenance but is not needed for this decision."),
+    ])
     assert reviewed["ok"] is True
     assert mcp_main.store.prepare_packet(run_id)["state"] == "PACKET_READY"
     assert mcp_main.inspect_sources(run_id)["ok"] is True

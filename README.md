@@ -90,8 +90,9 @@ The generic v2 path is the canonical research workflow:
 
 1. Create a Run with a claim, method context, one bounded UTF-8 CSV, and optional source candidates.
 2. GroundLoop profiles columns, candidate units, missingness, and sample rows. Its header signal is advisory only. Codex reads the claim, method context, and supplied literature, then records a reviewable modality proposal.
-3. The researcher confirms one X column, up to three Y columns, optional grouping/order, units, and either the matching Codex-proposed recipe or `generic`.
-4. Codex semantically reviews sources by role. The researcher freezes the exact claim, method, artifact hash, profile, binding, recipe, and selected excerpts.
+3. Codex may search literature outside GroundLoop and import bounded candidates with provider, publication status, query, rationale, locator, and excerpt hash. GroundLoop never fetches the supplied URL or DOI; imported candidates remain unreviewed.
+4. The researcher confirms one X column, up to three Y columns, optional grouping/order, units, and either the matching Codex-proposed recipe or `generic`.
+5. Codex semantically reviews every candidate by role. The researcher freezes the exact claim, method, artifact hash, profile, binding, recipe, selected excerpts, and source provenance.
 5. Codex requests an allowlisted operation such as `argmax`, `endpoint_delta`, `linear_fit`, `correlation`, or `monotonicity`. GroundLoop returns the only valid data-evidence ID and calculated fact.
 6. Codex records signatures, alignments, one control, and an export. `Observed` and `Contradicted` require GroundLoop-materialized data evidence. `Confounded` also requires a named alternative plus method/source limit evidence.
 
@@ -184,6 +185,7 @@ The principal MCP contracts are:
 - `create_run`, `get_run`, `update_run` — Codex-first creation and shared Run access;
 - `create_generic_run`, `inspect_dataset_profile`, `propose_measurement_modality`, `set_dataset_binding` — v2 generic intake and researcher-confirmed measurement roles;
 - `record_source_reviews` — one semantic review and one explicit evidence role per source;
+- `import_literature_candidates` — import bounded Codex-discovered source candidates without URL fetching;
 - `create_evidence_packet` — read the packet only after the researcher freezes it in the UI;
 - `inspect_sources`, `analyze_dataset`, `materialize_data_evidence` — bounded source checks, generic profile, and reproducible facts;
 - `record_signatures`, `record_alignments` — the claim-to-measurement Convergence Map;

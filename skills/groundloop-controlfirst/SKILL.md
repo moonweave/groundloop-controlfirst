@@ -55,10 +55,13 @@ these files into the electrical-transport path.
 
 1. Call `inspect_dataset_profile`. Treat `heuristic_modality_signal` and header
    units as advisory only.
-2. Read the claim, method context, supplied sources, and profile. Call
+2. Read the claim, method context, and profile. Search literature outside
+   GroundLoop as needed, then call `import_literature_candidates` with bounded
+   excerpts and complete provenance. GroundLoop never fetches a supplied URL.
+3. Read the imported candidates and call
    `record_measurement_modality` with `authority="codex"`; this is a proposal,
    not scientific proof or recipe activation.
-3. The researcher must confirm `set_dataset_binding` with returned column IDs
+4. The researcher must confirm `set_dataset_binding` with returned column IDs
    and either the matching proposed recipe or `generic` before the packet can
    freeze.
 3. After the human freeze and `analyze_dataset`, call
@@ -81,6 +84,11 @@ GroundLoop.
 
 While the Run is `DRAFT`, call `record_source_reviews` once with one
 adjudication for every supplied source candidate.
+
+Imported literature candidates are unreviewed by default. Read each bounded
+excerpt, locator, publication status, provider, search query, and discovery
+rationale before adjudication. A source URL or title is never evidence by
+itself.
 
 - `direct` requires exactly one role: `theory_basis`, `method_limit`, or
   `discriminating_control`.
