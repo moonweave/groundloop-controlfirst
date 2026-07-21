@@ -63,6 +63,7 @@ selection. The v2 allowlist is:
 - `group_summary`
 - `group_comparison` — materialize an explicit reference-group versus comparison-group mean difference and percent change; Codex must supply both group names.
 - `grouped_extrema` — materialize per-group minimum and maximum Y values with their X locations; useful for repeated sweeps or matched conditions.
+- `hysteresis_window` — materialize the maximum matched-group Y separation at shared X values. Duplicate group/X rows are rejected unless Codex explicitly supplies `{"replicate_strategy": "mean"}` for repeated-cycle aggregation.
 
 Every operation targets one explicit artifact and produces a stable
 `data-evidence-*` ID, artifact ID, exact columns and row range, artifact hash,

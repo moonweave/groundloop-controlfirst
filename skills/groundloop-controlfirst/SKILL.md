@@ -154,6 +154,9 @@ needed for the signatures (`band_comparison`, `local_peak`, `group_comparison`,
 `argmax`, `endpoint_delta`, `grouped_extrema`, `monotonicity`, `hysteresis_window`,
 `power_law_fit`, `correlation`, etc.).
 GroundLoop returns exact selectors and stable IDs.
+For repeated-cycle hysteresis, pass `{"replicate_strategy": "mean"}` explicitly
+when Codex chooses mean aggregation; GroundLoop otherwise rejects duplicate
+group/X rows instead of silently averaging them.
 
 ### 5. Record the Convergence Map
 

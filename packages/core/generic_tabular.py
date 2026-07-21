@@ -391,8 +391,11 @@ def materialize_evidence(
         if len(selected_columns) < 3:
             raise ValueError("hysteresis_window requires group, X, and numeric Y columns")
         group_name, x_name, y_name = names[:3]
+        replicate_strategy = parameters.get("replicate_strategy")
+        if replicate_strategy not in {None, "mean"}:
+            raise ValueError("hysteresis_window replicate_strategy must be 'mean' when supplied")
         by_x: dict[float, dict[str, float]] = {}
-        seen_group_x: set[tuple[str, float]] = set()
+        replicate_values: dict[tuple[str, float], list[float]] = {}
         groups: set[str] = set()
         for row in rows:
             group = row[group_name]
@@ -401,11 +404,12 @@ def materialize_evidence(
             if group is None or x_value is None or y_value is None:
                 continue
             key = (group, x_value)
-            if key in seen_group_x:
+            if key in replicate_values and replicate_strategy is None:
                 raise ValueError("hysteresis_window requires at most one Y value per group and X value")
-            seen_group_x.add(key)
+            replicate_values.setdefault(key, []).append(y_value)
             groups.add(group)
-            by_x.setdefault(x_value, {})[group] = y_value
+        for (group, x_value), values in replicate_values.items():
+            by_x.setdefault(x_value, {})[group] = mean(values)
         if len(groups) < 2:
             raise ValueError("hysteresis_window requires at least two non-empty groups")
         windows = []
@@ -426,6 +430,8 @@ def materialize_evidence(
             "matched_x_count": len(windows),
             "max_window": max_window,
             "windows": windows[:20],
+            "replicate_strategy": replicate_strategy,
+            "replicate_count": sum(max(0, len(values) - 1) for values in replicate_values.values()),
         }
         group_label = "/".join(sorted(groups))
         fact = (

@@ -24,6 +24,9 @@ CYCLIC_TRACE = b"potential_v,current_ua,direction\n-0.40,0.2,forward\n-0.20,0.4,
 IV_TRAP_SWEEP = b"voltage_v,current_a\n0.2,4.554603e-11\n0.3,1.183316e-10\n0.5,3.917102e-10\n0.8,1.184055e-09\n1.2,3.068870e-09\n1.8,7.954893e-09\n2.5,1.722466e-08\n3.5,3.795740e-08\n5.0,8.800754e-08\n7.0,1.932585e-07\n10.0,4.477442e-07\n"
 GROUPED_TRAP_DENSITY = b"sample_id,condition,trap_density_cm3\nc1,control,1.2e16\nc2,control,1.1e16\nc3,control,1.3e16\nt1,treated,7.0e15\nt2,treated,8.0e15\nt3,treated,7.5e15\n"
 IMPEDANCE_RESPONSE = b"frequency_hz,z_abs_ohm,phase_deg\n1,820,-78\n3,760,-75\n10,690,-70\n100,310,-42\n1000,155,-18\n10000,128,-7\n100000,121,-3\n"
+ACTUATOR_HYSTERESIS = b"electric_field_v_per_um,bending_angle_deg,sweep_direction,cycle,time_s\n-2.0,-6.4,forward,1,0\n-1.0,-2.7,forward,1,1\n0.0,0.2,forward,1,2\n1.0,4.8,forward,1,3\n2.0,8.9,forward,1,4\n1.0,3.1,reverse,1,5\n0.0,-0.8,reverse,1,6\n-1.0,-4.2,reverse,1,7\n-2.0,-7.1,reverse,1,8\n-2.0,-5.9,forward,2,9\n-1.0,-2.1,forward,2,10\n0.0,0.7,forward,2,11\n1.0,5.2,forward,2,12\n2.0,9.3,forward,2,13\n1.0,2.4,reverse,2,14\n0.0,-1.4,reverse,2,15\n-1.0,-4.8,reverse,2,16\n-2.0,-7.5,reverse,2,17\n"
+AMBIGUOUS_COLUMNS = b"x,y,value1,value2\n0,0.10,12,a\n1,0.18,14,b\n2,0.25,13,c\n3,0.32,15,d\n"
+TRANSIENT_RELAXATION = b"time_s,current_na,humidity_rh\n0,120,45\n5,91,45\n10,73,45\n20,58,45\n40,44,45\n80,31,45\n"
 
 
 def _codex_spectrum_proposal() -> MeasurementModalityProposal:
@@ -734,6 +737,258 @@ def test_hysteresis_window_materializes_matched_group_separation(tmp_path: Path)
     assert evidence["result"]["matched_x_count"] == 4
     assert evidence["result"]["max_window"] == {"x": 0.15, "window": 8.7, "values": {"forward": 4.8, "reverse": -3.9}}
     assert "maximum group separation of 8.7" in evidence["fact_text"]
+
+
+def test_actuator_hysteresis_scenario_exports_confounded_mechanism_without_domain_hardcoding(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    source = SourceInput(
+        id="src-actuator-limit",
+        title="Actuator attribution limits",
+        authors=["Test Lab"],
+        year=2026,
+        url_or_doi="https://example.invalid/actuator-limit",
+        locator={"section": "bounded excerpt"},
+        untrusted_content="Electric-field-linked bending can be caused by electromechanical strain, electrostatic charging, Joule heating, ionic or humidity drift, fixture motion, or viscoelastic relaxation; matched controls and repeat cycles are required for mechanism attribution.",
+        retrieval_provider="manual",
+        publication_status="unknown",
+    )
+    detail = store.create_generic_run(
+        ClaimInput(claim="Electric-field-driven bending is a reversible electromechanical response."),
+        "Two cycles of voltage-driven bending were exported with electric field, bending angle, sweep direction, cycle, and time. No matched thermal, dummy-substrate, humidity, imaging-lag, or current-controlled artifact was recorded.",
+        ACTUATOR_HYSTERESIS,
+        [source],
+        filename="actuator-hysteresis.csv",
+    )
+    run_id = detail["run"]["run_id"]
+    store.record_measurement_modality(
+        run_id,
+        MeasurementModalityProposal(
+            candidate="actuator_dynamics",
+            confidence="medium",
+            reasons=["Codex identified actuator-like columns, but mechanism attribution still depends on controls."],
+            alternatives=["generic_cyclic_trace", "generic_sweep"],
+            authority="codex",
+        ),
+    )
+    store.set_artifact_binding(
+        run_id,
+        DatasetBinding(
+            artifact_id="artifact-001",
+            x_column_id="col-001",
+            y_column_ids=["col-002"],
+            group_column_id="col-003",
+            confirmed_units={"col-001": "V/um", "col-002": "deg"},
+            confirmed_at="2026-07-21T00:00:00+00:00",
+        ),
+        "generic_cyclic_trace",
+    )
+    store.record_source_reviews(run_id, [SourceAdjudication(source_id="src-actuator-limit", verdict="direct", role="method_limit", rationale="The excerpt lists non-electromechanical alternatives and required matched controls.")])
+    store.prepare_packet(run_id)
+    store.inspect_sources(run_id, [{"expected_observation": "Actuator attribution requires matched controls.", "condition": "Only the bounded excerpt is frozen.", "falsifier": "The excerpt says bending alone proves electromechanical response.", "evidence_ref_ids": ["src-actuator-limit:evidence"]}])
+    store.analyze_dataset(run_id)
+    with pytest.raises(ValueError, match="at most one Y value"):
+        store.materialize_data_evidence(run_id, "hysteresis_window", ["col-003", "col-001", "col-002"], 2, 19)
+    window = store.materialize_data_evidence(run_id, "hysteresis_window", ["col-003", "col-001", "col-002"], 2, 19, {"replicate_strategy": "mean"})
+    endpoint = store.materialize_data_evidence(run_id, "endpoint_delta", ["col-005", "col-002"], 2, 19)
+    assert window["result"]["max_window"]["window"] == pytest.approx(2.25)
+    assert window["result"]["replicate_strategy"] == "mean"
+    assert window["result"]["replicate_count"] == 9
+    assert endpoint["result"]["delta_y"] == pytest.approx(-1.1)
+    store.record_signatures(
+        run_id,
+        [
+            RequiredSignature(id="signature-field-linked-bending", name="Field-linked bending", requirement="The observable must change with applied electric field.", expected_observation="Bending angle changes across the electric-field sweep.", falsifying_outcome="Bending angle is invariant.", theory_evidence_ref_ids=["src-actuator-limit:evidence"]),
+            RequiredSignature(id="signature-intrinsic-attribution", name="Intrinsic attribution", requirement="The response must be separated from charging, heating, humidity, fixture, and relaxation artifacts.", expected_observation="Matched controls rule out non-intrinsic alternatives.", falsifying_outcome="Alternative artifacts remain compatible.", theory_evidence_ref_ids=["src-actuator-limit:evidence"]),
+            RequiredSignature(id="signature-reversibility", name="Reversibility", requirement="Reversibility requires return to the same state across repeated cycles, not only motion under reversed sweep.", expected_observation="Residual displacement and drift are bounded across cycles.", falsifying_outcome="Residual offsets or cycle drift remain unresolved.", theory_evidence_ref_ids=["src-actuator-limit:evidence"]),
+        ],
+    )
+    convergence = store.record_alignments(
+        run_id,
+        [
+            AlignmentAdjudication(signature_id="signature-field-linked-bending", status="Observed", rationale="GroundLoop materialized a field-linked bending separation across matched sweep directions.", evidence_ref_ids=[window["evidence_id"]]),
+            AlignmentAdjudication(signature_id="signature-intrinsic-attribution", status="Confounded", rationale="The field-linked response is real within the artifact, but the method has no thermal, humidity, dummy-substrate, current, fixture, or imaging-lag controls.", evidence_ref_ids=[window["evidence_id"], "method-evidence-frozen", "src-actuator-limit:evidence"], alternative_explanation="Electrostatic charging, Joule heating, ionic or humidity drift, viscoelastic relaxation, fixture motion, or imaging lag can produce similar bending."),
+            AlignmentAdjudication(signature_id="signature-reversibility", status="Missing", rationale="The artifact contains repeated motion, but no matched repeatability/control artifact that bounds residual displacement against drift and relaxation.", evidence_ref_ids=[endpoint["evidence_id"], "src-actuator-limit:evidence"], missing_reason="required_condition_not_recorded"),
+        ],
+    )
+    assert convergence["dominant_gap"].startswith("Intrinsic attribution is confounded")
+    store.record_control_contract(
+        run_id,
+        ControlProposal(
+            confound="Bending artifact from heating, charging, humidity, fixture motion, or relaxation rather than intrinsic electromechanical response.",
+            experiment="Repeat the same field program on the sample and a dummy substrate while logging current and humidity, then run a matched thermal/current-only control with the optical tracking unchanged.",
+            preconditions=["same mount", "same field waveform", "same imaging pipeline", "same humidity window", "same cycle count"],
+            outcomes=[
+                {"if": "only the active sample bends with low residual drift while dummy and thermal/current controls stay flat", "then": "intrinsic electromechanical attribution gains bounded support."},
+                {"if": "dummy, humidity, thermal/current, or residual-drift controls reproduce the motion", "then": "artifact explanations remain dominant."},
+            ],
+            signature_ref_ids=["signature-intrinsic-attribution", "signature-reversibility"],
+            closes_signature_ids=["signature-intrinsic-attribution"],
+            leaves_open_signature_ids=["signature-reversibility"],
+            required_artifact_labels=["dummy-substrate trace", "matched thermal/current control"],
+            priority="high",
+            feasibility="Requires two matched control artifacts under the same imaging setup.",
+        ),
+    )
+    report = store.export_report(run_id)
+    markdown = store.get_report_markdown(run_id)
+    assert report["verdict"]["label"] == "NOT_ESTABLISHED"
+    assert "actuator-hysteresis.csv" in markdown
+    assert "dummy-substrate trace" in markdown
+    assert "Intrinsic attribution is confounded" in markdown
+
+
+def test_ambiguous_columns_require_binding_but_do_not_block_generic_workflow(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    detail = store.create_generic_run(
+        ClaimInput(claim="The tabular response supports a proposed material mechanism."),
+        "The CSV was exported from a device experiment, but the method only says x was swept and y was recorded. The meanings of value1 and value2 are not specified.",
+        AMBIGUOUS_COLUMNS,
+        [_source()],
+        filename="ambiguous-columns.csv",
+    )
+    run_id = detail["run"]["run_id"]
+    profile = store.inspect_dataset_profile(run_id)
+    assert profile["modality_proposal"]["confidence"] == "low"
+    assert profile["modality_proposal"]["authority"] == "groundloop_heuristic"
+    store.record_source_reviews(run_id, [SourceAdjudication(source_id="src-spectrum-limit", verdict="direct", role="method_limit", rationale="The source limits mechanism assignment from underspecified measurements.")])
+    with pytest.raises(ValueError, match="binding"):
+        store.prepare_packet(run_id)
+    store.record_measurement_modality(run_id, MeasurementModalityProposal(candidate="unknown", confidence="low", reasons=["Codex cannot infer scientific column meaning from headers and partial methods alone."], alternatives=["generic_sweep"], authority="codex"))
+    store.set_dataset_binding(run_id, DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_at="2026-07-21T00:00:00+00:00"), "generic")
+    store.prepare_packet(run_id)
+    store.inspect_sources(run_id, [{"expected_observation": "Underspecified methods limit attribution.", "condition": "Only the bounded excerpt is frozen.", "falsifier": "The source says ambiguous columns are sufficient.", "evidence_ref_ids": ["src-spectrum-limit:evidence"]}])
+    store.analyze_dataset(run_id)
+    evidence = store.materialize_data_evidence(run_id, "endpoint_delta", ["col-001", "col-002"], 2, 5)
+    store.record_signatures(
+        run_id,
+        [
+            RequiredSignature(id="signature-response", name="Response", requirement="The selected observable changes across the selected axis.", expected_observation="A bounded data operation records a change.", falsifying_outcome="No change is recorded."),
+            RequiredSignature(id="signature-column-meaning", name="Column meaning", requirement="The selected columns must map to scientific roles in the claim.", expected_observation="The method defines the scientific meaning of x and y.", falsifying_outcome="Column roles remain underspecified.", theory_evidence_ref_ids=["src-spectrum-limit:evidence"]),
+        ],
+    )
+    convergence = store.record_alignments(
+        run_id,
+        [
+            AlignmentAdjudication(signature_id="signature-response", status="Observed", rationale="GroundLoop materialized a change in the researcher-confirmed x/y binding.", evidence_ref_ids=[evidence["evidence_id"]]),
+            AlignmentAdjudication(signature_id="signature-column-meaning", status="Missing", rationale="The method does not specify what x and y physically represent, so mechanism attribution cannot be made from the column names.", evidence_ref_ids=["method-evidence-frozen"], missing_reason="required_condition_not_recorded"),
+        ],
+    )
+    assert convergence["dominant_gap"].startswith("Column meaning is missing")
+
+
+def test_unsupported_modality_degrades_to_missing_without_fake_observed_evidence(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    source = SourceInput(
+        id="src-transient-limit",
+        title="Transient attribution limits",
+        authors=["Test Lab"],
+        year=2026,
+        url_or_doi="https://example.invalid/transient-limit",
+        locator={"section": "bounded excerpt"},
+        untrusted_content="Transient current relaxation can be consistent with trap release, ionic drift, dielectric absorption, or environmental relaxation; mechanism assignment requires temperature, humidity, or perturbation controls.",
+        retrieval_provider="manual",
+        publication_status="unknown",
+    )
+    detail = store.create_generic_run(
+        ClaimInput(claim="The transient current relaxation proves trap release in the device."),
+        "A single current relaxation trace was recorded at fixed humidity after a voltage step. Temperature variation, repeated perturbation, illumination, and humidity-control artifacts were not recorded.",
+        TRANSIENT_RELAXATION,
+        [source],
+        filename="transient-relaxation.csv",
+    )
+    run_id = detail["run"]["run_id"]
+    store.record_measurement_modality(run_id, MeasurementModalityProposal(candidate="generic_time_series", confidence="medium", reasons=["Codex can reason about the time trace but no specialized relaxation model is available as verified evidence."], alternatives=["unknown"], authority="codex"))
+    store.set_dataset_binding(run_id, DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_units={"col-001": "s", "col-002": "nA"}, confirmed_at="2026-07-21T00:00:00+00:00"), "generic")
+    store.record_source_reviews(run_id, [SourceAdjudication(source_id="src-transient-limit", verdict="direct", role="method_limit", rationale="The excerpt lists compatible alternatives and required controls for transient attribution.")])
+    store.prepare_packet(run_id)
+    store.inspect_sources(run_id, [{"expected_observation": "Single transient relaxation is attribution-limited.", "condition": "Only the bounded excerpt is frozen.", "falsifier": "The source says a single decay proves trap release.", "evidence_ref_ids": ["src-transient-limit:evidence"]}])
+    store.analyze_dataset(run_id)
+    with pytest.raises(ValueError, match="unsupported deterministic evidence operation"):
+        store.materialize_data_evidence(run_id, "stretched_exponential_fit", ["col-001", "col-002"], 2, 7)
+    delta = store.materialize_data_evidence(run_id, "endpoint_delta", ["col-001", "col-002"], 2, 7)
+    store.record_signatures(
+        run_id,
+        [
+            RequiredSignature(id="signature-decay", name="Current decay", requirement="Current should relax after the perturbation.", expected_observation="Current decreases over time.", falsifying_outcome="Current does not decrease."),
+            RequiredSignature(id="signature-trap-release", name="Trap-release attribution", requirement="The relaxation must be separated from ionic, dielectric, humidity, or environmental alternatives.", expected_observation="Matched controls isolate trap release.", falsifying_outcome="Alternatives remain compatible.", theory_evidence_ref_ids=["src-transient-limit:evidence"]),
+        ],
+    )
+    with pytest.raises(ValueError, match="materialized"):
+        store.record_alignments(
+            run_id,
+            [
+                AlignmentAdjudication(signature_id="signature-decay", status="Observed", rationale="Codex calculated a decay from the table.", evidence_ref_ids=["method-evidence-frozen"]),
+                AlignmentAdjudication(signature_id="signature-trap-release", status="Missing", rationale="No controls were recorded.", missing_reason="not_measured"),
+            ],
+        )
+    convergence = store.record_alignments(
+        run_id,
+        [
+            AlignmentAdjudication(signature_id="signature-decay", status="Observed", rationale="GroundLoop materialized a decrease in current over the selected time window.", evidence_ref_ids=[delta["evidence_id"]]),
+            AlignmentAdjudication(signature_id="signature-trap-release", status="Confounded", rationale="The decay is real within the artifact, but no temperature, humidity, illumination, or perturbation controls separate trap release from alternatives.", evidence_ref_ids=[delta["evidence_id"], "method-evidence-frozen", "src-transient-limit:evidence"], alternative_explanation="Ionic drift, dielectric absorption, humidity drift, or environmental relaxation can produce a similar transient."),
+        ],
+    )
+    assert convergence["dominant_gap"].startswith("Trap-release attribution is confounded")
+
+
+def test_adversarial_literature_boundary_keeps_snippets_and_theory_separate_from_data_evidence(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    detail = store.create_generic_run(
+        ClaimInput(claim="A spectral peak proves a defect-state mechanism."),
+        "A steady-state intensity spectrum was recorded once. Lifetime, temperature, dose, and control spectra were not recorded.",
+        SPECTRUM,
+        [],
+        filename="adversarial-spectrum.csv",
+    )
+    run_id = detail["run"]["run_id"]
+    candidates = [
+        _literature_candidate("src-direct-full", "https://doi.org/10.1000/direct-full", " It describes why lifetime control is needed."),
+        _literature_candidate("src-abstract-only", "https://doi.org/10.1000/abstract-only", " The abstract is relevant but not enough for current data observation."),
+        _literature_candidate("src-search-snippet", "https://example.invalid/search-snippet", " Search snippet says defect peaks exist but does not bound method limits."),
+        _literature_candidate("src-irrelevant", "https://doi.org/10.1000/irrelevant", " This source discusses a different material and measurement."),
+    ]
+    store.import_literature_candidates(run_id, candidates)
+    with pytest.raises(ValueError, match="source roles"):
+        store.prepare_packet(run_id)
+    store.record_source_reviews(
+        run_id,
+        [
+            SourceAdjudication(source_id="src-direct-full", verdict="direct", role="method_limit", rationale="The bounded excerpt directly states that lifetime control is required."),
+            SourceAdjudication(source_id="src-abstract-only", verdict="contextual", rationale="Relevant background but not direct evidence for this measurement boundary."),
+            SourceAdjudication(source_id="src-search-snippet", verdict="reject", rationale="A search snippet or title-like statement cannot become direct evidence."),
+            SourceAdjudication(source_id="src-irrelevant", verdict="reject", rationale="Different material and method."),
+        ],
+    )
+    store.set_dataset_binding(run_id, DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-002"], confirmed_units={"col-001": "nm", "col-002": "counts"}, confirmed_at="2026-07-21T00:00:00+00:00"), "generic_spectrum")
+    store.prepare_packet(run_id)
+    packet = store.get_packet(run_id)
+    assert [source["id"] for source in packet["sources"]] == ["src-direct-full"]
+    assert len(packet["source_candidates"]) == 4
+    store.inspect_sources(run_id, [{"expected_observation": "A steady-state peak needs lifetime control for assignment.", "condition": "Only the direct bounded excerpt is in the evidence boundary.", "falsifier": "The direct excerpt does not state this limitation.", "evidence_ref_ids": ["src-direct-full:evidence"]}])
+    store.analyze_dataset(run_id)
+    peak = store.materialize_data_evidence(run_id, "argmax", ["col-001", "col-002"], 2, 6)
+    store.record_signatures(
+        run_id,
+        [
+            RequiredSignature(id="signature-peak", name="Peak presence", requirement="A spectral peak must be present.", expected_observation="A materialized maximum exists.", falsifying_outcome="No peak exists."),
+            RequiredSignature(id="signature-defect-assignment", name="Defect assignment", requirement="The peak must be separated from alternative assignments.", expected_observation="Lifetime or temperature control supports the assignment.", falsifying_outcome="Only a steady-state peak is present.", theory_evidence_ref_ids=["src-direct-full:evidence"]),
+        ],
+    )
+    with pytest.raises(ValueError, match="materialized"):
+        store.record_alignments(
+            run_id,
+            [
+                AlignmentAdjudication(signature_id="signature-peak", status="Observed", rationale="Peak exists.", evidence_ref_ids=["src-direct-full:evidence"]),
+                AlignmentAdjudication(signature_id="signature-defect-assignment", status="Missing", rationale="No control.", missing_reason="not_measured"),
+            ],
+        )
+    store.record_alignments(
+        run_id,
+        [
+            AlignmentAdjudication(signature_id="signature-peak", status="Observed", rationale="GroundLoop materialized the spectral maximum.", evidence_ref_ids=[peak["evidence_id"]]),
+            AlignmentAdjudication(signature_id="signature-defect-assignment", status="Missing", rationale="The Run includes no lifetime or temperature-control artifact.", evidence_ref_ids=["src-direct-full:evidence"], missing_reason="not_measured"),
+        ],
+    )
 
 
 def test_multi_artifact_generic_run_freezes_materializes_and_exports_cross_artifact_evidence(tmp_path: Path) -> None:
