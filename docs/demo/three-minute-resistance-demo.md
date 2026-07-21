@@ -16,7 +16,7 @@ The video must prove one product outcome:
 
 1. Start the local app with `./scripts/demo.sh`.
 2. Confirm `codex mcp get groundloop` reports the local `groundloop-mcp` command.
-3. Run `uv run pytest -q` and `cd apps/web && pnpm lint && pnpm exec tsc -b --noEmit && pnpm build`.
+3. Run `uv sync --extra test`, `uv run pytest -q`, and `cd apps/web && pnpm install && pnpm lint && pnpm exec tsc -b --noEmit && pnpm build`.
 4. Install the repo's `skills/groundloop-controlfirst` skill or have the copied brief ready for a Codex chat that can call the registered MCP server.
 5. Use a clean browser window at the GroundLoop start screen. Keep browser zoom at 100%.
 6. Confirm the voiceover explicitly says both “Codex” and “GPT-5.6”.

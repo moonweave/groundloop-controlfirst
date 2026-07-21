@@ -236,8 +236,9 @@ The data trace is synthetic demonstration data; it makes no claim about a physic
 ## Verify
 
 ```bash
+uv sync --extra test
 uv run pytest
-cd apps/web && pnpm exec tsc -b --noEmit && pnpm build
+cd apps/web && pnpm install && pnpm exec tsc -b --noEmit && pnpm build
 ```
 
 ## Security boundary
