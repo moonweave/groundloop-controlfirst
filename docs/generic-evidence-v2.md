@@ -60,6 +60,7 @@ selection. The v2 allowlist is:
 - `correlation`
 - `monotonicity`
 - `group_summary`
+- `group_comparison` — materialize an explicit reference-group versus comparison-group mean difference and percent change; Codex must supply both group names.
 - `grouped_extrema` — materialize per-group minimum and maximum Y values with their X locations; useful for repeated sweeps or matched conditions.
 
 Every operation targets one explicit artifact and produces a stable

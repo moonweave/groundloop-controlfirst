@@ -22,6 +22,7 @@ SPECTRUM = b"wavelength_nm,intensity_counts\n580,12\n600,28\n620,91\n640,45\n660
 TEMPERATURE_CONTROL = b"temperature_c,peak_intensity_counts\n20,41\n40,58\n60,79\n80,104\n"
 CYCLIC_TRACE = b"potential_v,current_ua,direction\n-0.40,0.2,forward\n-0.20,0.4,forward\n0.00,1.2,forward\n0.15,4.8,forward\n0.30,2.0,forward\n0.45,0.8,forward\n0.60,0.3,forward\n0.45,-0.4,reverse\n0.30,-1.6,reverse\n0.15,-3.9,reverse\n0.00,-1.0,reverse\n-0.15,-0.3,reverse\n-0.30,-0.1,reverse\n"
 IV_TRAP_SWEEP = b"voltage_v,current_a\n0.2,4.554603e-11\n0.3,1.183316e-10\n0.5,3.917102e-10\n0.8,1.184055e-09\n1.2,3.068870e-09\n1.8,7.954893e-09\n2.5,1.722466e-08\n3.5,3.795740e-08\n5.0,8.800754e-08\n7.0,1.932585e-07\n10.0,4.477442e-07\n"
+GROUPED_TRAP_DENSITY = b"sample_id,condition,trap_density_cm3\nc1,control,1.2e16\nc2,control,1.1e16\nc3,control,1.3e16\nt1,treated,7.0e15\nt2,treated,8.0e15\nt3,treated,7.5e15\n"
 
 
 def _codex_spectrum_proposal() -> MeasurementModalityProposal:
@@ -438,6 +439,129 @@ def test_grouped_extrema_materializes_forward_reverse_peaks_without_codex_arithm
     assert evidence["result"]["forward"]["max"] == {"x": 0.15, "y": 4.8}
     assert evidence["result"]["reverse"]["min"] == {"x": 0.15, "y": -3.9}
     assert evidence["artifact_id"] == "artifact-001"
+
+
+def test_grouped_comparison_keeps_treatment_mechanism_confounded(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    source = SourceInput(
+        id="src-group-limit",
+        title="Grouped device-comparison limits",
+        authors=["Test Lab"],
+        year=2026,
+        url_or_doi="https://example.invalid/grouped-comparison",
+        locator={"section": "Methods"},
+        untrusted_content="A treated-versus-control difference can support a response comparison, but mechanism assignment requires matched devices, batch controls, and an independent discriminator.",
+        retrieval_provider="manual",
+        publication_status="unknown",
+    )
+    detail = store.create_generic_run(
+        ClaimInput(claim="A surface treatment lowers trap density in the amorphous device material."),
+        "Trap density estimates were exported for three control devices and three treated devices. The method did not record batch randomization, thickness matching, electrode contact checks, or an independent trap-specific measurement.",
+        GROUPED_TRAP_DENSITY,
+        [source],
+        filename="grouped-trap-density.csv",
+    )
+    run_id = detail["run"]["run_id"]
+    store.record_measurement_modality(
+        run_id,
+        MeasurementModalityProposal(
+            candidate="grouped_comparison",
+            confidence="high",
+            reasons=["The artifact contains condition labels and trap-density estimates for control and treated groups."],
+            authority="codex",
+        ),
+    )
+    store.set_dataset_binding(
+        run_id,
+        DatasetBinding(
+            artifact_id="artifact-001",
+            x_column_id="col-001",
+            y_column_ids=["col-003"],
+            group_column_id="col-002",
+            confirmed_units={"col-003": "cm^-3"},
+            confirmed_at="2026-07-21T00:00:00+00:00",
+        ),
+        "generic",
+    )
+    store.record_source_reviews(run_id, [SourceAdjudication(source_id="src-group-limit", verdict="direct", role="method_limit", rationale="The excerpt permits grouped response comparison but limits mechanism assignment.")])
+    store.prepare_packet(run_id)
+    store.inspect_sources(run_id, [{"expected_observation": "Grouped response comparison does not establish mechanism by itself.", "condition": "Only the bounded excerpt is frozen.", "falsifier": "The excerpt says treated-versus-control means prove the mechanism.", "evidence_ref_ids": ["src-group-limit:evidence"]}])
+    store.analyze_dataset(run_id)
+    comparison = store.materialize_data_evidence(
+        run_id,
+        "group_comparison",
+        ["col-002", "col-003"],
+        2,
+        7,
+        {"reference_group": "control", "comparison_group": "treated"},
+    )
+    assert comparison["result"]["reference"]["count"] == 3
+    assert comparison["result"]["comparison"]["mean"] == pytest.approx(7.5e15)
+    assert comparison["result"]["delta_mean"] == pytest.approx(-4.5e15)
+    assert comparison["result"]["percent_change"] == pytest.approx(-37.5)
+    store.record_signatures(
+        run_id,
+        [
+            RequiredSignature(id="signature-group-response", name="Grouped response", requirement="Treated devices should show lower measured trap-density estimates than controls.", expected_observation="The treated mean is lower than the control mean.", falsifying_outcome="The treated mean is equal to or above the control mean.", theory_evidence_ref_ids=["src-group-limit:evidence"]),
+            RequiredSignature(id="signature-treatment-attribution", name="Treatment attribution", requirement="The lower estimate must be attributable to treatment rather than batch, thickness, contact, or extraction artifacts.", expected_observation="Matched design and independent checks separate treatment from alternatives.", falsifying_outcome="Batch/device/method alternatives remain compatible.", theory_evidence_ref_ids=["src-group-limit:evidence"]),
+            RequiredSignature(id="signature-independent-discriminator", name="Independent discriminator", requirement="A trap-specific independent measurement must corroborate the extracted density change.", expected_observation="A separate trap-sensitive artifact changes consistently with the extracted density.", falsifying_outcome="Only the grouped estimate table is present.", theory_evidence_ref_ids=["src-group-limit:evidence"]),
+        ],
+    )
+    convergence = store.record_alignments(
+        run_id,
+        [
+            AlignmentAdjudication(signature_id="signature-group-response", status="Observed", rationale="GroundLoop materialized a lower treated group mean relative to the control group.", evidence_ref_ids=[comparison["evidence_id"]]),
+            AlignmentAdjudication(signature_id="signature-treatment-attribution", status="Confounded", rationale="The grouped difference is real within the artifact, but the method does not separate treatment from batch, device geometry, contact, or extraction alternatives.", evidence_ref_ids=[comparison["evidence_id"], "method-evidence-frozen", "src-group-limit:evidence"], alternative_explanation="Batch variation, unmatched thickness, contact differences, or extraction-model artifacts can produce the same group mean difference."),
+            AlignmentAdjudication(signature_id="signature-independent-discriminator", status="Missing", rationale="The Run contains no independent trap-sensitive artifact such as temperature-dependent I-V, DLTS-like spectroscopy, or matched impedance evidence.", missing_reason="not_measured"),
+        ],
+    )
+    assert convergence["dominant_gap"].startswith("Treatment attribution is confounded")
+    store.record_control_contract(
+        run_id,
+        ControlProposal(
+            confound="Treatment effect is not separated from batch/device/method artifacts.",
+            experiment="Repeat the grouped comparison with randomized matched control and treated devices from the same batch, then add one independent trap-sensitive measurement on the same devices.",
+            preconditions=["same material batch", "matched thickness", "same electrode stack", "same extraction model"],
+            outcomes=[
+                {"if": "the treated group remains lower and the independent trap-sensitive artifact shifts consistently", "then": "treatment attribution gains bounded support."},
+                {"if": "the group difference disappears or the independent artifact does not shift consistently", "then": "batch/device/method artifacts remain the dominant explanation."},
+            ],
+            signature_ref_ids=["signature-treatment-attribution", "signature-independent-discriminator"],
+            closes_signature_ids=["signature-independent-discriminator"],
+            leaves_open_signature_ids=["signature-treatment-attribution"],
+            required_artifact_labels=["matched randomized grouped table", "independent trap-sensitive control"],
+            priority="high",
+            feasibility="Requires a matched repeat or existing replicate/control artifacts.",
+        ),
+    )
+    report = store.export_report(run_id)
+    markdown = store.get_report_markdown(run_id)
+    assert report["verdict"]["label"] == "NOT_ESTABLISHED"
+    assert "grouped-trap-density.csv" in markdown
+    assert "Treatment attribution is confounded" in markdown
+
+
+def test_group_comparison_requires_explicit_group_roles(tmp_path: Path) -> None:
+    store = RunStore(tmp_path / "runs")
+    detail = store.create_generic_run(
+        ClaimInput(claim="A treatment changes a grouped measurement."),
+        "Grouped measurements were exported without enough context to choose a reference group automatically.",
+        GROUPED_TRAP_DENSITY,
+        [_source()],
+        filename="grouped-trap-density.csv",
+    )
+    run_id = detail["run"]["run_id"]
+    store.set_dataset_binding(
+        run_id,
+        DatasetBinding(artifact_id="artifact-001", x_column_id="col-001", y_column_ids=["col-003"], group_column_id="col-002", confirmed_at="2026-07-21T00:00:00+00:00"),
+        "generic",
+    )
+    store.record_source_reviews(run_id, [SourceAdjudication(source_id="src-spectrum-limit", verdict="direct", role="method_limit", rationale="The source limits mechanism assignment.")])
+    store.prepare_packet(run_id)
+    store.inspect_sources(run_id, [{"expected_observation": "assignment is limited", "condition": "source excerpt is frozen", "falsifier": "excerpt does not describe a limitation", "evidence_ref_ids": ["src-spectrum-limit:evidence"]}])
+    store.analyze_dataset(run_id)
+    with pytest.raises(ValueError, match="reference_group and comparison_group"):
+        store.materialize_data_evidence(run_id, "group_comparison", ["col-002", "col-003"], 2, 7)
 
 
 def test_hysteresis_window_materializes_matched_group_separation(tmp_path: Path) -> None:

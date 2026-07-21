@@ -196,7 +196,7 @@ def materialize_evidence(
     allowed = {
         "raw_slice", "column_summary", "endpoint_delta", "argmax", "argmin", "range_extrema",
         "linear_fit", "correlation", "monotonicity", "group_summary", "grouped_extrema",
-        "hysteresis_window", "power_law_fit", "local_peak",
+        "hysteresis_window", "power_law_fit", "local_peak", "group_comparison",
     }
     if operation not in allowed:
         raise ValueError("unsupported deterministic evidence operation")
@@ -415,6 +415,47 @@ def materialize_evidence(
                 "max": {"x": high[0], "y": high[1]},
             }
         fact = f"Grouped extrema of {y_name} versus {x_name} were materialized for {len(groups)} group(s): {', '.join(sorted(groups))}."
+        hint = "summary"
+    elif operation == "group_comparison":
+        if len(selected_columns) < 2:
+            raise ValueError("group_comparison requires a group and numeric value column")
+        reference_group = str(parameters.get("reference_group") or "")
+        comparison_group = str(parameters.get("comparison_group") or "")
+        if not reference_group or not comparison_group:
+            raise ValueError("group_comparison requires reference_group and comparison_group parameters")
+        if reference_group == comparison_group:
+            raise ValueError("group_comparison requires two distinct groups")
+        group_name, value_name = names[0], names[1]
+        groups: dict[str, list[float]] = {}
+        for row in rows:
+            value = _number(row[value_name])
+            group = row[group_name]
+            if group is not None and value is not None:
+                groups.setdefault(group, []).append(value)
+        missing = [group for group in (reference_group, comparison_group) if group not in groups]
+        if missing:
+            raise ValueError(f"group_comparison missing requested group(s): {', '.join(missing)}")
+        reference_values = groups[str(reference_group)]
+        comparison_values = groups[str(comparison_group)]
+        reference_mean = mean(reference_values)
+        comparison_mean = mean(comparison_values)
+        delta = comparison_mean - reference_mean
+        percent_change = None if reference_mean == 0 else delta / reference_mean * 100
+        result = {
+            "reference_group": reference_group,
+            "comparison_group": comparison_group,
+            "reference": {"count": len(reference_values), "mean": reference_mean, "min": min(reference_values), "max": max(reference_values)},
+            "comparison": {"count": len(comparison_values), "mean": comparison_mean, "min": min(comparison_values), "max": max(comparison_values)},
+            "delta_mean": delta,
+            "percent_change": percent_change,
+            "all_groups": sorted(groups),
+        }
+        change_text = "undefined percent change" if percent_change is None else f"{percent_change:.6g}%"
+        fact = (
+            f"{value_name} mean changes from {reference_mean:.6g} in {reference_group} "
+            f"(n={len(reference_values)}) to {comparison_mean:.6g} in {comparison_group} "
+            f"(n={len(comparison_values)}), delta={delta:.6g} ({change_text})."
+        )
         hint = "summary"
     else:  # group_summary
         if len(selected_columns) < 2:
